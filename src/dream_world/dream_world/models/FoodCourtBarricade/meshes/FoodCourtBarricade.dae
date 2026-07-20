@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <asset>
+    <contributor>
+      <author>Blender User</author>
+      <authoring_tool>Blender 2.90.0 commit date:2020-08-31, commit time:11:26, hash:0330d1af29c0</authoring_tool>
+    </contributor>
+    <created>2020-10-05T17:21:43</created>
+    <modified>2020-10-05T17:21:43</modified>
+    <unit name="meter" meter="1"/>
+    <up_axis>Z_UP</up_axis>
+  </asset>
+  <library_effects>
+    <effect id="FoodCourtBarricade-effect">
+      <profile_COMMON>
+        <newparam sid="FoodCourtBarricade_Diffuse_png-surface">
+          <surface type="2D">
+            <init_from>FoodCourtBarricade_Diffuse_png</init_from>
+          </surface>
+        </newparam>
+        <newparam sid="FoodCourtBarricade_Diffuse_png-sampler">
+          <sampler2D>
+            <source>FoodCourtBarricade_Diffuse_png-surface</source>
+          </sampler2D>
+        </newparam>
+        <technique sid="common">
+          <lambert>
+            <emission>
+              <color sid="emission">0 0 0 1</color>
+            </emission>
+            <diffuse>
+              <texture texture="FoodCourtBarricade_Diffuse_png-sampler" texcoord="UVMap"/>
+            </diffuse>
+			<transparent opaque="A_ONE">
+				<texture texture="FoodCourtBarricade_Diffuse_png-sampler" texcoord="UVMap"/>
+            </transparent>
+            <index_of_refraction>
+              <float sid="ior">1.45</float>
+            </index_of_refraction>
+          </lambert>
+        </technique>
+      </profile_COMMON>
+    </effect>
+  </library_effects>
+  <library_images>
+    <image id="FoodCourtBarricade_Diffuse_png" name="FoodCourtBarricade_Diffuse_png">
+      <init_from>FoodCourtBarricade_Diffuse.png</init_from>
+    </image>
+  </library_images>
+  <library_materials>
+    <material id="FoodCourtBarricade-material" name="FoodCourtBarricade">
+      <instance_effect url="#FoodCourtBarricade-effect"/>
+    </material>
+  </library_materials>
+  <library_geometries>
+    <geometry id="FoodCourtBarricade-mesh" name="FoodCourtBarricade">
+      <mesh>
+        <source id="FoodCourtBarricade-mesh-positions">
+          <float_array id="FoodCourtBarricade-mesh-positions-array" count="168">0.7953172 0.001103281 0.2654417 -0.7953172 0.001103281 0.2654417 0.7953172 -0.001103281 0.2654417 -0.7953172 -0.001103281 0.2654417 0.7953172 0.001103281 0.8864363 -0.7953172 0.001103281 0.8864363 0.7953172 -0.001103281 0.8864363 -0.7953172 -0.001103281 0.8864363 0.7953172 0.03442227 0.2179306 -0.7953172 0.03442227 0.2179306 0.7953172 -0.03442227 0.2179306 -0.7953172 -0.03442227 0.2179306 0.7953172 0.03442227 0.2627483 -0.7953172 0.03442227 0.2627483 0.7953172 -0.03442227 0.2627483 -0.7953172 -0.03442227 0.2627483 0.8779558 0.04217618 0 0.8779558 0.04217618 1.120442 -0.8779558 0.04217618 0 -0.8779558 0.04217618 1.120442 0.8779558 -0.04217618 0 0.8779558 -0.04217618 1.120442 -0.8779558 -0.04217618 0 -0.8779558 -0.04217618 1.120442 0.8252785 0.04217618 0 0.8252785 0.04217618 1.057629 -0.8252785 0.04217618 0 -0.8252785 0.04217618 1.057629 0.8252785 -0.04217618 0 0.8252785 -0.04217618 1.057629 -0.8252785 -0.04217618 0 -0.8252785 -0.04217618 1.057629 0.7937391 0.03442227 0 0.7937391 0.03442227 1.012811 -0.7937391 0.03442227 0 -0.7937391 0.03442227 1.012811 0.7937391 -0.03442227 0 0.7937391 -0.03442227 1.012811 -0.7937391 -0.03442227 0 -0.7937391 -0.03442227 1.012811 0.8252785 0.03442227 0 0.8252785 0.03442227 1.057629 -0.8252785 0.03442227 0 -0.8252785 0.03442227 1.057629 0.8252785 -0.03442227 0 0.8252785 -0.03442227 1.057629 -0.8252785 -0.03442227 0 -0.8252785 -0.03442227 1.057629 0.7953172 0.03442227 0.8878223 -0.7953172 0.03442227 0.8878223 0.7953172 -0.03442227 0.8878223 -0.7953172 -0.03442227 0.8878223 0.7953172 0.03442227 0.9326399 -0.7953172 0.03442227 0.9326399 0.7953172 -0.03442227 0.9326399 -0.7953172 -0.03442227 0.9326399</float_array>
+          <technique_common>
+            <accessor source="#FoodCourtBarricade-mesh-positions-array" count="56" stride="3">
+              <param name="X" type="float"/>
+              <param name="Y" type="float"/>
+              <param name="Z" type="float"/>
+            </accessor>
+          </technique_common>
+        </source>
+        <source id="FoodCourtBarricade-mesh-normals">
+          <float_array id="FoodCourtBarricade-mesh-normals-array" count="72">0 1 0 0 -1 0 0 0 -1 0 0 1 -1 0 0 1 0 0 0 1 0 0 1 0 0 1 0 0 -1 0 0 -1 0 0 -1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 -1 0 0 -1 0 0 -1 0 0 -1 0 0 -1 0 0 -1 0</float_array>
+          <technique_common>
+            <accessor source="#FoodCourtBarricade-mesh-normals-array" count="24" stride="3">
+              <param name="X" type="float"/>
+              <param name="Y" type="float"/>
+              <param name="Z" type="float"/>
+            </accessor>
+          </technique_common>
+        </source>
+        <source id="FoodCourtBarricade-mesh-map-0">
+          <float_array id="FoodCourtBarricade-mesh-map-0-array" count="248">0.989999 0.320937 0.9899989 0.01697367 0.00999993 0.01697361 0.00999999 0.3209373 0.9899991 0.3209388 0.9899988 0.0169754 0.009999871 0.01697534 0.00999993 0.3209391 0.9607459 0.3500007 0.9430612 0.3500007 0.9430612 0.7585877 0.9607453 0.7585875 0.8853747 0.7585916 0.8853752 0.3500047 0.8676905 0.3500047 0.8676906 0.7585916 0.8471567 0.9165109 0.8471567 0.9049975 0.4385772 0.9049975 0.4385772 0.9165097 0.01000088 0.940005 0.01000088 0.9515181 0.4185805 0.9515171 0.4185803 0.940005 0.08779668 0.672811 0.1094644 0.672811 0.1094643 0.3849998 0.08779644 0.3849998 0.06780141 0.3849955 0.04613375 0.3849955 0.04613375 0.6728069 0.06780171 0.6728067 0.847692 0.8010446 0.847692 0.3499982 0.8260244 0.3499982 0.8260241 0.8010447 0.01000452 0.8816696 0.2816795 0.8816696 0.2816795 0.8600019 0.01000452 0.8600018 0.9773391 0.8600018 0.7056627 0.8600018 0.7056627 0.8816697 0.9773391 0.8816697 0.2816795 0.8600019 0.2816795 0.8816696 0.7056627 0.8816697 0.7056627 0.8600018 0.6337372 0.8360354 0.6337372 0.8225035 0.362047 0.8225036 0.3459114 0.8360355 0.3459114 0.8360355 0.362047 0.8225036 0.3620458 0.398535 0.3459113 0.3850042 0.3459113 0.3850042 0.3620458 0.398535 0.6337147 0.3985339 0.6337146 0.3850029 0.2978281 0.8010348 0.2978281 0.7875028 0.02613818 0.7875025 0.01000237 0.8010344 0.01000237 0.8010344 0.02613818 0.7875025 0.02613735 0.3635343 0.01000291 0.3500034 0.01000291 0.3500034 0.02613735 0.3635343 0.2978062 0.3635334 0.297806 0.3500024 0.3259094 0.3615139 0.317808 0.3500018 0.3178064 0.6216852 0.3259078 0.6216852 0.7336803 0.3615152 0.7417821 0.3500025 0.317808 0.3500018 0.3259094 0.3615139 0.7336806 0.6216841 0.7417821 0.6216841 0.7417821 0.3500025 0.7336803 0.3615152 0.7979248 0.6801698 0.8060261 0.6916821 0.8060274 0.4199986 0.7979259 0.4199986 0.3901539 0.6801694 0.3820523 0.6916821 0.8060261 0.6916821 0.7979248 0.6801698 0.3901532 0.4200004 0.3820517 0.4200004 0.3820523 0.6916821 0.3901539 0.6801694 0.1294609 0.3850045 0.1294609 0.6451678 0.1471452 0.6451678 0.1471452 0.3850045 0.3820457 0.7550016 0.3820457 0.7726857 0.7898263 0.772686 0.7898263 0.7550016 0.1671427 0.6451612 0.1848269 0.6451612 0.1848268 0.3849979 0.1671425 0.3849979 0.7906315 0.7326824 0.7906317 0.7149976 0.3820448 0.7149977 0.3820448 0.7326819 0.9230612 0.7585904 0.9230611 0.3500034 0.9053764 0.3500036 0.9053771 0.7585904 0.8471662 0.9515106 0.8471662 0.9399972 0.4385869 0.9399973 0.4385869 0.9515094 0.4185753 0.9165174 0.4185753 0.905004 0.009996056 0.9050055 0.009996056 0.9165176</float_array>
+          <technique_common>
+            <accessor source="#FoodCourtBarricade-mesh-map-0-array" count="124" stride="2">
+              <param name="S" type="float"/>
+              <param name="T" type="float"/>
+            </accessor>
+          </technique_common>
+        </source>
+        <vertices id="FoodCourtBarricade-mesh-vertices">
+          <input semantic="POSITION" source="#FoodCourtBarricade-mesh-positions"/>
+        </vertices>
+        <polylist material="FoodCourtBarricade-material" count="31">
+          <input semantic="VERTEX" source="#FoodCourtBarricade-mesh-vertices" offset="0"/>
+          <input semantic="NORMAL" source="#FoodCourtBarricade-mesh-normals" offset="1"/>
+          <input semantic="TEXCOORD" source="#FoodCourtBarricade-mesh-map-0" offset="2" set="0"/>
+          <vcount>4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 </vcount>
+          <p>1 0 0 5 0 1 4 0 2 0 0 3 2 1 4 6 1 5 7 1 6 3 1 7 11 2 8 9 2 9 8 2 10 10 2 11 15 3 12 14 3 13 12 3 14 13 3 15 9 0 16 13 0 17 12 0 18 8 0 19 10 1 20 14 1 21 15 1 22 11 1 23 18 4 24 22 4 25 23 4 26 19 4 27 20 5 28 16 5 29 17 5 30 21 5 31 23 3 32 21 3 33 17 3 34 19 3 35 26 5 36 27 5 37 31 5 38 30 5 39 28 4 40 29 4 41 25 4 42 24 4 43 31 2 44 27 2 45 25 2 46 29 2 47 16 6 48 24 6 49 25 7 50 17 8 51 17 8 52 25 7 53 27 0 54 19 0 55 19 0 56 27 0 57 26 0 58 18 0 59 22 9 60 30 9 61 31 10 62 23 11 63 23 11 64 31 10 65 29 1 66 21 1 67 21 1 68 29 1 69 28 1 70 20 1 71 33 12 72 41 13 73 40 14 74 32 14 75 35 15 76 43 16 77 41 13 78 33 12 79 34 17 80 42 17 81 43 16 82 35 15 83 39 18 84 47 19 85 46 20 86 38 20 87 37 21 88 45 22 89 47 19 90 39 18 91 36 23 92 44 23 93 45 22 94 37 21 95 34 5 96 35 5 97 39 5 98 38 5 99 33 2 100 37 2 101 39 2 102 35 2 103 32 4 104 36 4 105 37 4 106 33 4 107 51 2 108 49 2 109 48 2 110 50 2 111 55 3 112 54 3 113 52 3 114 53 3 115 49 0 116 53 0 117 52 0 118 48 0 119 50 1 120 54 1 121 55 1 122 51 1 123</p>
+        </polylist>
+      </mesh>
+    </geometry>
+  </library_geometries>
+  <library_visual_scenes>
+    <visual_scene id="Scene" name="Scene">
+      <node id="FoodCourtBarricade" name="FoodCourtBarricade" type="NODE">
+        <matrix sid="transform">1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1</matrix>
+        <instance_geometry url="#FoodCourtBarricade-mesh" name="FoodCourtBarricade">
+          <bind_material>
+            <technique_common>
+              <instance_material symbol="FoodCourtBarricade-material" target="#FoodCourtBarricade-material">
+                <bind_vertex_input semantic="UVMap" input_semantic="TEXCOORD" input_set="0"/>
+              </instance_material>
+            </technique_common>
+          </bind_material>
+        </instance_geometry>
+      </node>
+    </visual_scene>
+  </library_visual_scenes>
+  <scene>
+    <instance_visual_scene url="#Scene"/>
+  </scene>
+</COLLADA>

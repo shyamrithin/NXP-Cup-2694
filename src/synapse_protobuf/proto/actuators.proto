@@ -1,0 +1,13 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "header.proto";
+
+// see https://github.com/rudislabs/actuator_msgs/blob/main/msg/Actuators.msg
+
+message Actuators {
+	Header header = 1;
+	repeated double position = 2;
+	repeated double velocity = 3;
+	repeated double normalized = 4;
+}

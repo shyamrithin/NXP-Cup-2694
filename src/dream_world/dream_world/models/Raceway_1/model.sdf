@@ -1,0 +1,29 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <model name='Raceway_1'>
+    <pose>0 0 0 0 0 1.55</pose>
+    <self_collide>false</self_collide>
+    <static>true</static>
+    <link name='Raceway_1/Base'>
+      <collision name="collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+            <plane>
+                <normal>0 0 1</normal>
+                <size>100 100</size>
+            </plane>
+        </geometry>
+      </collision>
+      <visual name='Raceway_1/TrackVisual'>
+        <!--pose>0 0 -0.014 0 0 0</pose-->
+        <pose>4 -8 -0.037 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>0.75 0.75 0.75</scale>
+            <uri>model://Raceway_1/meshes/track.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

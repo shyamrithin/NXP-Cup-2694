@@ -1,0 +1,57 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "header.proto";
+
+// see https://github.com/ros2/common_interfaces/blob/rolling/sensor_msgs/msg/BatteryState.msg
+ 
+message BatteryState {
+	enum PowerSupplyStatus {
+		UNKNOWN_STATUS=0;
+		CHARGING=1;
+		DISCHARGING=2;
+		NOT_CHARGING=3;
+		FULL=4;
+	}
+	enum PowerSupplyHealth {
+		UNKNOWN_HEALTH=0;
+		GOOD=1;
+		OVERHEAT=2;
+		DEAD=3;
+		OVERVOLTAGE=4;
+		UNSPEC_FAILURE=5;
+		COLD=6;
+		WATCHDOG_TIMER_EXPIRE=7;
+		SAFETY_TIMER_EXPIRE=8;
+	}
+	enum PowerSupplyTechnology {
+		UNKNOWN_TECHNOLOGY=0;
+		NIMH=1;
+		LION=2;
+		LIPO=3;
+		LIFE=4;
+		NICD=5;
+		LIMN=6;
+		TERNARY=7;
+		VRLA=8;
+	}
+	Header header = 1;
+	double voltage = 2;          // Voltage in Volts (Mandatory)
+	double temperature = 3;      // Temperature in Degrees Celsius (If unmeasured NaN)
+	double current = 4;          // Negative when discharging (A)  (If unmeasured NaN)
+	double charge = 5;           // Current charge in Ah  (If unmeasured NaN)
+	double capacity = 6;         // Capacity in Ah (last full capacity)  (If unmeasured NaN)
+	double design_capacity = 7;  // Capacity in Ah (design capacity)  (If unmeasured NaN)
+	double percentage = 8;       // Charge percentage on 0 to 1 range  (If unmeasured NaN)
+	PowerSupplyStatus power_supply_status =  9; // The charging status as reported. Values defined above
+	PowerSupplyHealth power_supply_health = 10; // The battery health metric. Values defined above
+	PowerSupplyTechnology power_supply_technology = 11; // The battery chemistry. Values defined above
+	bool present = 12; // True if the battery is present
+
+	repeated double cell_voltage = 13; // An array of individual cell voltages for each cell in the pack
+                         // If individual voltages unknown but number of cells known set each to NaN
+	repeated double cell_temperature = 14; // An array of individual cell temperatures for each cell in the pack
+                         // If individual temperatures unknown but number of cells known set each to NaN
+	string location = 15;   // The location into which the battery is inserted. (slot number or plug)
+	string serial_number = 16;    // The best approximation of the battery serial number
+}

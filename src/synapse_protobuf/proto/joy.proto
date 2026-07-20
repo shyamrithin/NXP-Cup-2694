@@ -1,0 +1,7 @@
+syntax = "proto3";
+package synapse.msgs;
+
+message Joy {
+	repeated float axes = 1;
+	repeated int32 buttons = 2;
+}

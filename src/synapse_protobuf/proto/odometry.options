@@ -1,0 +1,1 @@
+synapse.msgs.Odometry.child_frame_id max_length:32

@@ -1,0 +1,16 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "header.proto";
+import "vector3.proto";
+import "quaternion.proto";
+
+message Imu {
+	Header header = 1;
+	Quaternion orientation = 2;
+	repeated double orientation_covariance = 3;
+	Vector3 angular_velocity = 4;
+	repeated double angular_velocity_covariance = 5;
+	Vector3 linear_acceleration = 6;
+	repeated double linear_acceleration_covariance = 7;
+}

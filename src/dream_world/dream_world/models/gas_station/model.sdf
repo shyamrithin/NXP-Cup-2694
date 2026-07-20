@@ -1,0 +1,53 @@
+<?xml version="1.0" ?>
+<sdf version="1.5">
+  <model name="Gas Station">
+    <plugin filename="gz-sim-contact-system"
+          name="gz::sim::systems::Contact">
+    </plugin>
+    <static>true</static>
+    <link name="link">
+      <pose>0 0 0 0 0 0</pose>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://gas_station/meshes/gas_station.dae</uri>
+            <scale>0.15 0.15 0.15</scale>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://gas_station/meshes/gas_station.dae</uri>
+            <scale>0.15 0.15 0.15</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://gas_station/materials/scripts</uri>
+            <uri>model://gas_station/materials/textures</uri>
+            <name>GasStation/Diffuse</name>
+          </script>
+          <diffuse>1.0 1.0 1.0</diffuse>
+          <specular>1.0 1.0 1.0</specular>
+          <pbr>
+          <metal>
+          <albedo_map>materials/textures/GasStation_Diffuse.png</albedo_map>
+          </metal>
+          </pbr>
+          <shader type="normal_map_tangent_space">
+            <normal_map>materials/textures/GasStation_Normal.png</normal_map>
+          </shader>
+        </material>
+      </visual>
+    <sensor name='sensor_contact' type='contact'>
+          <contact>
+            <collision>collision</collision>
+            <topic>/collision_detect</topic>
+          </contact>
+          <always_on>1</always_on>
+          <update_rate>100</update_rate>
+        </sensor>
+    </link>
+  </model>
+</sdf>

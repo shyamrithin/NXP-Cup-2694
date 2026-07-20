@@ -1,0 +1,12 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "header.proto";
+import "bezier_curve.proto";
+
+message BezierTrajectory
+{
+  Header header               = 1;
+  uint64 time_start           = 2;
+  repeated BezierCurve curves = 3;
+}

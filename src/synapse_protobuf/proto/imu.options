@@ -1,0 +1,3 @@
+synapse.msgs.Imu.orientation_covariance max_count:9
+synapse.msgs.Imu.angular_velocity_covariance max_count:9
+synapse.msgs.Imu.linear_acceleration_covariance max_count:9

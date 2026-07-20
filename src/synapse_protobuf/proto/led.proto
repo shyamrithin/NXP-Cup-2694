@@ -1,0 +1,10 @@
+syntax = "proto3";
+package synapse.msgs;
+
+message LED
+{
+  uint32 index = 1;
+  uint32 r = 2;
+  uint32 g = 3;
+  uint32 b = 4;
+}

@@ -1,0 +1,20 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "time.proto";
+import "header.proto";
+
+// see https://github.com/gazebosim/gz-msgs/blob/gz-msgs9/proto/gz/msgs/clock.proto
+
+/// \ingroup synapse.msgs
+/// \interface SimClock
+/// \brief A message for simulation, real, system clock
+
+message SimClock
+{
+  	/// \brief Optional header data
+	Header header = 1;
+	Time system = 2;
+	Time real = 3;
+	Time sim = 4;
+}

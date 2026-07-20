@@ -1,0 +1,15 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "header.proto";
+import "nav_sat_status.proto";
+
+message NavSatFix {
+	Header header = 1;
+	NavSatStatus status = 2;
+	double latitude = 3;
+	double longitude = 4;
+	double altitude = 5;
+	repeated double position_covariance = 6;
+	uint32 position_covariance_type = 7;
+}

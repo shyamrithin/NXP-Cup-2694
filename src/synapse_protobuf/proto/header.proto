@@ -1,0 +1,10 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "time.proto";
+
+message Header {
+	uint32 seq = 1;
+	Time stamp = 2;
+	string frame_id = 3;
+}

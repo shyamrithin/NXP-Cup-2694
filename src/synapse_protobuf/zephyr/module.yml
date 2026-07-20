@@ -1,0 +1,6 @@
+name: synapse_protobuf
+build:
+  kconfig: zephyr/Kconfig
+  cmake: zephyr
+  depends:
+    - nanopb

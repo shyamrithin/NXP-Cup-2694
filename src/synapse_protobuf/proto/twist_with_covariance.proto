@@ -1,0 +1,9 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "twist.proto";
+
+message TwistWithCovariance {
+	Twist twist = 1;
+	repeated double covariance = 2;
+}

@@ -1,0 +1,11 @@
+syntax = "proto3";
+package synapse.msgs;
+
+message BezierCurve
+{
+  uint64 time_stop          = 1;
+  repeated double x         = 2;
+  repeated double y         = 3;
+  repeated double z         = 4;
+  repeated double yaw       = 5;
+}

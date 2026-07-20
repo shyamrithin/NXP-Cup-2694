@@ -1,0 +1,4 @@
+synapse.msgs.LED.index int_size:IS_8
+synapse.msgs.LED.r int_size:IS_8
+synapse.msgs.LED.g int_size:IS_8
+synapse.msgs.LED.b int_size:IS_8

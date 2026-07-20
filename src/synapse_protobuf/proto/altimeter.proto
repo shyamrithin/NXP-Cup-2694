@@ -1,0 +1,13 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "header.proto";
+
+// see https://github.com/gazebosim/gz-msgs/blob/gz-msgs9/proto/gz/msgs/altimeter.proto
+
+message Altimeter {
+	Header header = 1;
+	double vertical_position = 2;
+	double vertical_velocity = 3;
+	double vertical_reference = 4;
+}

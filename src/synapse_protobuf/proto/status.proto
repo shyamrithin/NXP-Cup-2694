@@ -1,0 +1,61 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "header.proto";
+
+message Status {
+	enum Arming {
+		ARMING_UNKNOWN=0;
+		ARMING_DISARMED=1;
+		ARMING_ARMED=2;
+	}
+
+	enum Fuel {
+		FUEL_UNKNOWN=0;
+		FUEL_CRITICAL=1;
+		FUEL_LOW=2;
+		FUEL_NOMINAL=3;
+		FUEL_OVER_CAPACITY=4;
+	}
+
+	enum Joy {
+		JOY_UNKNOWN=0;
+		JOY_DISABLED=1;
+		JOY_LOSS=2;
+		JOY_NOMINAL=3;
+	}
+
+	enum Mode {
+		MODE_UNKNOWN=0;
+		MODE_MANUAL=1;
+		MODE_AUTO=2;
+		MODE_CMD_VEL=3;
+		MODE_CALIBRATION=4;
+	}
+
+	enum Safety {
+		SAFETY_UNKNOWN=0;
+		SAFETY_SAFE=1;
+		SAFETY_UNSAFE=2;
+	}
+
+	enum Synapse {
+		SYNAPSE_UNKNOWN=0;
+		SYNAPSE_DISABLED=1;
+		SYNAPSE_LOSS=2;
+		SYNAPSE_NOMINAL=3;
+        }
+
+	Header header = 1;
+	Arming arming = 2;
+	Joy joy = 3;
+	Fuel fuel = 4;
+	Mode mode = 5;
+	Safety safety = 6;
+	Synapse synapse = 7;
+	string status_message = 8;
+	uint32 fuel_percentage = 9;
+	float power = 10;
+	uint32 request_seq = 11;
+	bool request_rejected = 12;
+}

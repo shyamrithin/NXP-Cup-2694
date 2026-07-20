@@ -1,0 +1,35 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <model name="apartment">
+  <plugin filename="gz-sim-contact-system"
+          name="gz::sim::systems::Contact">
+    </plugin>
+    <static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://apartment/meshes/apartment.dae</uri>
+            <scale>0.1 0.1 0.1</scale>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://apartment/meshes/apartment.dae</uri>
+            <scale>0.1 0.1 0.1</scale>
+          </mesh>
+        </geometry>
+      </visual>
+      <sensor name='sensor_contact' type='contact'>
+          <contact>
+            <collision>collision</collision>
+            <topic>/collision_detect</topic>
+          </contact>
+          <always_on>1</always_on>
+          <update_rate>100</update_rate>
+        </sensor>
+    </link>
+  </model>
+</sdf>

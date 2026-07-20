@@ -1,0 +1,11 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "header.proto";
+import "vector3.proto";
+
+message MagneticField {
+	Header header = 1;
+	Vector3 magnetic_field = 2;
+	repeated double magnetic_field_covariance = 3;
+}

@@ -1,0 +1,9 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "pose.proto";
+
+message PoseWithCovariance {
+	Pose pose = 1;
+	repeated double covariance = 2;
+}

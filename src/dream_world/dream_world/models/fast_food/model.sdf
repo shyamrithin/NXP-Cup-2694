@@ -1,0 +1,53 @@
+<?xml version="1.0" ?>
+<sdf version="1.5">
+  <model name="Fast Food">
+    <plugin filename="gz-sim-contact-system"
+          name="gz::sim::systems::Contact">
+    </plugin>
+    <static>true</static>
+    <link name="link">
+      <pose>0 0 0 0 0 0</pose>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <scale>0.3 0.3 0.2</scale>
+            <uri>model://fast_food/meshes/fast_food.dae</uri>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <scale>0.3 0.3 0.2</scale>
+            <uri>model://fast_food/meshes/fast_food.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://fast_food/materials/scripts</uri>
+            <uri>model://fast_food/materials/textures</uri>
+            <name>FastFood/Diffuse</name>
+          </script>
+          <diffuse>1.0 1.0 1.0</diffuse>
+          <specular>1.0 1.0 1.0</specular>
+          <pbr>
+          <metal>
+          <albedo_map>materials/textures/FastFood_Diffuse.png</albedo_map>
+          </metal>
+          </pbr>
+          <shader type="normal_map_tangent_space">
+            <normal_map>materials/textures/FastFood_Normal.png</normal_map>
+          </shader>
+        </material>
+      </visual>
+      <sensor name='sensor_contact' type='contact'>
+          <contact>
+            <collision>collision</collision>
+            <topic>/collision_detect</topic>
+          </contact>
+          <always_on>1</always_on>
+          <update_rate>100</update_rate>
+        </sensor>
+    </link>
+  </model>
+</sdf>

@@ -1,0 +1,4 @@
+synapse.msgs.BezierCurve.x max_count:8
+synapse.msgs.BezierCurve.y max_count:8
+synapse.msgs.BezierCurve.z max_count:8
+synapse.msgs.BezierCurve.yaw max_count:8

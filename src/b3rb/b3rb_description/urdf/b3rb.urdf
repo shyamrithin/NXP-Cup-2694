@@ -1,0 +1,114 @@
+<?xml version="1.0"?>
+<robot name="b3rb" xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <material name="black">
+    <color rgba="0.01 0.01 0.01 1"/>
+  </material>
+
+  <material name="white">
+    <color rgba="1 1 1 1"/>
+  </material>
+ 
+  <link name="base_link">
+    <origin xyz="0.0 0 0.0" rpy="0 0 0"/>
+    <visual>
+      <origin xyz="0.002 0 0.031" rpy="0 0 -1.5707"/>
+      <geometry>
+        <mesh filename="package://b3rb_description/meshes/b3rb.dae" scale="1 1 1" />
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="0.112 -0.10 0.036" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://b3rb_description/meshes/wheel.dae" scale="1 1 1" />
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="0.112 0.10 0.036" rpy="0 0 3.14159"/>
+      <geometry>
+        <mesh filename="package://b3rb_description/meshes/wheel.dae" scale="1 1 1" />
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="-0.1135 -0.10 0.036" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://b3rb_description/meshes/wheel.dae" scale="1 1 1" />
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="-0.1135 0.10 0.036" rpy="0 0 3.14159"/>
+      <geometry>
+        <mesh filename="package://b3rb_description/meshes/wheel.dae" scale="1 1 1" />
+      </geometry>
+    </visual>
+  </link>
+
+  <link name="base_footprint"/>
+  <link name="camera_link_optical"/>
+
+  <link name="lidar_link">
+    <visual>
+      <origin xyz="0 0 -.017" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.039 0.039 0.022"/>
+      </geometry>
+      <material name="black"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder length="0.014" radius="0.018"/>
+      </geometry>
+      <material name="black"/>
+    </visual>
+  </link>
+
+  <link name="camera_link">
+    <visual>
+      <origin xyz=".013 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size=".008 .028 .028"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    <visual>
+      <origin xyz=".008 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size=".008 .014 .01"/>
+      </geometry>
+      <material name="white"/>
+    </visual>
+    <visual>
+      <origin xyz=".016 0 .006" rpy="0 1.57079632679 0"/>
+      <geometry>
+        <cylinder length="0.003" radius="0.004"/>
+      </geometry>
+      <material name="black"/>
+    </visual>
+  </link>
+
+  <joint name="base_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="base_footprint"/>
+    <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="lidar_joint" type="fixed">
+    <origin xyz="0 0 0.191" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="lidar_link"/>
+  </joint>
+
+  <joint name="camera_joint" type="fixed">
+    <origin xyz=".173 0 .145" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+  </joint>
+
+  <joint name="camera_optical_joint" type="fixed">
+    <origin xyz=".016 0 .006" rpy="-1.57079632679 0 -1.57079632679"/>
+    <parent link="camera_link"/>
+    <child link="camera_link_optical"/>
+  </joint>
+
+</robot>

@@ -1,0 +1,14 @@
+syntax = "proto3";
+package synapse.msgs;
+
+import "header.proto";
+
+message Can
+{
+	Header header = 1;
+	uint32 id = 2;
+	bool is_rtr = 3;
+	bool is_extended = 4;
+	uint32 dlc = 5;
+	repeated uint32 data = 6;
+}

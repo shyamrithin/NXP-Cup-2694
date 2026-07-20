@@ -1,0 +1,2 @@
+synapse.msgs.Joy.axes max_count:12
+synapse.msgs.Joy.buttons max_count:16
