@@ -46,7 +46,7 @@ The ultimate objective is to successfully transport all patients to their assign
     * Participants will extend these scripts to implement the full challenge logic.
 
 ### **HARDWARE**
-This software is designed to run on the B3RB and can be tested in compatible Gazebo simulations.
+This software is designed to run on the Hardware B3RB Buggy or can be tested in compatible Gazebo simulations.
 1.  [NXP MR-B3RB](https://nxp.gitbook.io/mr-b3rb): The target hardware buggy.
     * Requires a forward-facing camera for QR code detection and potentially building and sign recognition.
     * Relies on sensors (LIDAR, encoders, IMU) for localization & mapping, and navigation (Nav2).
@@ -474,7 +474,7 @@ Perform the following steps to setup the environment and build cranium for NXP C
 > **DO THESE STEPS VERY CAREFULLY AND RESPONSIBLY !!!**
 
 1.  **Install Dependencies:** (The following modules are allowed for use in your solution.)
-    - **ALERT: If you wish to use an additional python module, refer "SUBMISSION RULES" below**
+    - **ALERT: If you wish to use an additional python module, refer "[SUBMISSION RULES](#submission-rules)" below**
     ```bash
     pip install \
         torch==2.3.0 \
