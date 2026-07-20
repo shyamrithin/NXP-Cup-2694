@@ -1,0 +1,64 @@
+{
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "spdxVersion": "SPDX-2.3",
+  "creationInfo": {
+    "created": "2026-07-20T15:28:05Z",
+    "creators": [
+      "Organization: NXP"
+    ],
+    "licenseListVersion": "3.28"
+  },
+  "name": "NXP Cup India 2026-1.0",
+  "dataLicense": "CC0-1.0",
+  "documentNamespace": "https://nxp.com/spdx/60239d17-d550-4b08-bd2a-d2b962c7f06d",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-package-60239d17-d550-4b08-bd2a-d2b962c7f06d",
+      "name": "NXP Cup India 2026",
+      "versionInfo": "1.0",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "downloadLocation": "NOASSERTION",
+      "originator": "Organization: NXP Cup India 2026",
+      "supplier": "NOASSERTION",
+      "externalRefs": [],
+      "filesAnalyzed": false
+    },
+    {
+      "SPDXID": "SPDXRef-package-60239d17-d550-4b08-bd2a-d2b962c7f06d---5a458054-55ee-40d5-bbdc-30f0e1cf950f",
+      "name": "MightyPork/TinyFrame",
+      "versionInfo": "2.3.0",
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "homepage": "https://github.com/MightyPork/TinyFrame",
+      "downloadLocation": "NOASSERTION",
+      "originator": "Organization: mightypork",
+      "supplier": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "OTHER",
+          "referenceLocator": "4d92924e-eb98-4337-be2f-a0599cf092f0",
+          "referenceType": "BlackDuck-ComponentOrigin"
+        },
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceLocator": "pkg:github/mightypork/tinyframe@2.3.0",
+          "referenceType": "purl"
+        }
+      ],
+      "filesAnalyzed": false
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-package-60239d17-d550-4b08-bd2a-d2b962c7f06d"
+    },
+    {
+      "spdxElementId": "SPDXRef-package-60239d17-d550-4b08-bd2a-d2b962c7f06d",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-package-60239d17-d550-4b08-bd2a-d2b962c7f06d---5a458054-55ee-40d5-bbdc-30f0e1cf950f"
+    }
+  ]
+}
