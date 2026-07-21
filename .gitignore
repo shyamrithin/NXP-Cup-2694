@@ -1,0 +1,35 @@
+# =============================================================================
+# .gitignore - NXP Cup India 2026 (cranium workspace)
+# -----------------------------------------------------------------------------
+# This repository doubles as the colcon workspace root (~/cognipilot/cranium).
+# Everything colcon generates is derived output and must stay untracked; only
+# source under src/ is version controlled.
+# =============================================================================
+
+# --- colcon build artifacts ---
+build/
+install/
+log/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# --- ROS / ament ---
+*.rosinstall
+.catkin_tools/
+
+# --- Datasets / capture scratch (keep repo light) ---
+# NOTE: trained model weights (*.pt, *.tflite, *.h5) that ship with the
+# submission MUST be committed inside b3rb_ros_line_follower/ - do not
+# add them here.
+datasets/
+captures/
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
