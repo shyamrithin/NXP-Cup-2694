@@ -83,10 +83,11 @@ LANE_WIDTH_INIT_FRAC = 0.70  # initial guess as a fraction of image width
 LANE_WIDTH_LEARN_RATE = 0.10 # EMA rate for the learned width
 
 # --- obstacle avoidance ---
-OBSTACLE_STOP_DIST = 0.55    # metres, emergency
-OBSTACLE_SLOW_DIST = 1.20    # metres, begin evasive steer
-FRONT_ARC_DEG = 40           # +/- degrees treated as "front"
-SIDE_ARC_DEG = 70            # sector used to pick a dodge direction
+OBSTACLE_STOP_DIST = 0.55    # metres, emergency hard-avoid
+OBSTACLE_SLOW_DIST = 1.10    # metres, begin proportional evasive steer
+OBSTACLE_BIAS_MAX = 0.55     # max steering added by avoidance (was fixed 0.4)
+FRONT_ARC_DEG = 22           # +/- degrees treated as "front path" (narrow!)
+SIDE_ARC_DEG = 55            # sector used to pick a dodge direction
 DEBUG_LIDAR = True           # print front/side clearances at 2 Hz for tuning
 
 # --- zone estimation (penalty-critical: keep conservative) ---
@@ -535,18 +536,35 @@ class LineFollower(Node):
         self.publish_drive_commands()
 
     def drive_seeking(self):
-        """Lane-follow with reactive obstacle avoidance layered on top."""
+        """
+        Lane following with reactive avoidance blended in (not overriding).
+
+        Key idea: only the NARROW forward path should trigger a dodge. A wall
+        we are driving alongside is close but irrelevant, so side/near readings
+        must not yank the wheel. The avoidance term is proportional to how close
+        and how central the obstacle is, and it is ADDED to the lane command so
+        the buggy keeps tracking the lane while it eases around the object.
+        """
         turn = self.lane_turn
 
-        if self.obstacle_block:
-            # Blocked: stop forward motion and rotate toward open space.
-            turn = 0.6 if self.left_clear > self.right_clear else -0.6
-            self.set_control(SPEED_STOP, turn)
+        # Emergency: something very close, dead ahead. Steer hard toward the
+        # side with more room but KEEP part of the lane term so we don't rotate
+        # blindly across a boundary.
+        if self.front_dist < OBSTACLE_STOP_DIST:
+            escape = 0.7 if self.left_clear > self.right_clear else -0.7
+            turn = max(min(0.5 * self.lane_turn + escape, TURN_MAX), -TURN_MAX)
+            self.set_control(SPEED_CORNER, turn)   # crawl, don't fully stop
             return
 
+        # Proportional avoidance: ramps from 0 at OBSTACLE_SLOW_DIST to full
+        # at OBSTACLE_STOP_DIST. No fixed slap, so driving parallel to a wall
+        # that only clips the far edge of the front arc barely perturbs us.
         if self.front_dist < OBSTACLE_SLOW_DIST:
-            # Something ahead: bias the steer toward the roomier side.
-            bias = 0.4 if self.left_clear > self.right_clear else -0.4
+            span = OBSTACLE_SLOW_DIST - OBSTACLE_STOP_DIST
+            severity = (OBSTACLE_SLOW_DIST - self.front_dist) / max(span, 1e-3)
+            severity = max(0.0, min(1.0, severity))
+            bias = OBSTACLE_BIAS_MAX * severity
+            bias = bias if self.left_clear > self.right_clear else -bias
             turn = max(min(turn + bias, TURN_MAX), -TURN_MAX)
 
         # If a fresh QR shows our target, slow down for the approach.
@@ -580,7 +598,9 @@ class LineFollower(Node):
         building = self.last_qr
 
         if building.startswith("PATIENT"):
-            self.server.send(building)
+            # Protocol uses single-letter codes on the wire (A/B/C), while the
+            # QR encodes the full name ({LOC: PATIENT_1}). Translate before TX.
+            self.server.send(NAME_TO_CODE.get(building, building))
             self.set_state(State.WAIT_ASSIGNMENT)
 
         elif building.startswith("FAKE"):
@@ -594,7 +614,7 @@ class LineFollower(Node):
                     f"{self.assigned_hospital} - skipping")
                 self.set_state(State.SEEK_HOSPITAL)
                 return
-            self.server.send(building)
+            self.server.send(NAME_TO_CODE.get(building, building))
             self.delivered += 1
             self.get_logger().info(
                 f"[MISSION] delivered {self.delivered}/{TOTAL_PATIENTS}")
