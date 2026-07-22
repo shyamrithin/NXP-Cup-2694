@@ -523,7 +523,7 @@
 
 
 	<!-- Obstacles -->
-
+	<!--
 	<include>
 		<uri>models://barricade</uri>
 		<name>barricade_1</name>
@@ -638,7 +638,7 @@
 		<name>lamp_3</name>
 		<pose>-1.3122 -2.5313 0 0 0 -3.0000</pose>
 	</include>
-
+	-->
 
 	
 	<!-- Below objects are the ones not on the track. You can set the coordinates to place them on track -->

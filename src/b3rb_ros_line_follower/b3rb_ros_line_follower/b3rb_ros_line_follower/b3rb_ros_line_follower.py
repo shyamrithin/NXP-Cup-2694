@@ -69,16 +69,25 @@ SPEED_APPROACH = 0.18        # closing on a building to scan
 SPEED_STOP = 0.0
 TURN_SLOWDOWN_GAIN = 0.6     # how much |turn| bleeds speed
 
-# --- lane following ---
-LANE_KP = 1.0                # proportional gain on normalised deviation
-SINGLE_LINE_PUSH = 0.55      # how hard to steer away from a lone boundary
-LANE_LOST_TURN = 0.25        # gentle arc while searching for the lane
+# --- lane following (PD + smoothing) ---
+LANE_KP = 0.85               # proportional gain on normalised deviation
+LANE_KD = 0.30               # derivative gain - damps the oscillation
+TURN_SMOOTHING = 0.55        # EMA weight on previous turn (0 = none, 0.9 = heavy)
+LANE_LOST_DECAY = 0.92       # momentum memory: decay last turn while blind
+LANE_LOST_MAX_SEC = 1.5      # after this long with no lane, stop guessing
+
+# Lane width is LEARNED whenever both boundaries are visible, then reused when
+# only one is visible. This keeps the single-boundary case continuous with the
+# two-boundary case instead of stepping to a fixed push value.
+LANE_WIDTH_INIT_FRAC = 0.70  # initial guess as a fraction of image width
+LANE_WIDTH_LEARN_RATE = 0.10 # EMA rate for the learned width
 
 # --- obstacle avoidance ---
 OBSTACLE_STOP_DIST = 0.55    # metres, emergency
 OBSTACLE_SLOW_DIST = 1.20    # metres, begin evasive steer
 FRONT_ARC_DEG = 40           # +/- degrees treated as "front"
 SIDE_ARC_DEG = 70            # sector used to pick a dodge direction
+DEBUG_LIDAR = True           # print front/side clearances at 2 Hz for tuning
 
 # --- zone estimation (penalty-critical: keep conservative) ---
 ZONE_WALL_DIST = 1.60        # building considered "reached" within this range
@@ -239,10 +248,16 @@ class LineFollower(Node):
         # ---------------- perception state ----------------
         self.lane_turn = 0.0            # steering suggested by lane following
         self.lane_visible = False
+        self.lane_confidence = 0        # 0 = blind, 1 = one edge, 2 = both
+        self.lane_width_px = None       # learned online from two-edge frames
+        self.prev_deviation = 0.0
+        self.prev_lane_time = None
+        self.lane_lost_since = None
         self.front_dist = float('inf')
         self.left_clear = float('inf')
         self.right_clear = float('inf')
         self.obstacle_block = False
+        self._last_lidar_log = 0.0
 
         self.last_qr = None
         self.last_qr_time = 0.0
@@ -296,64 +311,127 @@ class LineFollower(Node):
 
     def edge_vectors_callback(self, message):
         """
-        Convert lane boundary vectors into a steering suggestion.
+        Convert lane boundary vectors into a steering command.
 
-        vector_count == 2 : both boundaries visible -> steer toward midpoint
-        vector_count == 1 : one boundary -> push away from it
-        vector_count == 0 : lane lost -> gentle search arc
+        The controller estimates the lane CENTRE in image space, then applies
+        PD control on the normalised deviation from the image centre.
+
+        Both-edges case : centre = midpoint of the two boundaries, and the
+                          observed lane width is learned.
+        Single-edge case: centre = boundary offset by half the LEARNED lane
+                          width. This is continuous with the two-edge case, so
+                          a boundary leaving frame mid-corner no longer causes
+                          a step change in steering.
+        No-edge case    : momentum memory - decay the last command rather than
+                          snapping to zero, then give up after a timeout.
         """
-        width = float(message.image_width) if message.image_width else 640.0
+        width = float(message.image_width) if message.image_width else 320.0
         half = width / 2.0
+        now = time.time()
 
-        if message.vector_count == 0:
+        if self.lane_width_px is None:
+            self.lane_width_px = LANE_WIDTH_INIT_FRAC * width
+
+        count = message.vector_count
+        self.lane_confidence = count
+        centre = None
+
+        if count >= 2:
+            x1 = (message.vector_1[0].x + message.vector_1[1].x) / 2.0
+            x2 = (message.vector_2[0].x + message.vector_2[1].x) / 2.0
+            centre = (x1 + x2) / 2.0
+
+            # Learn the lane width, ignoring implausible observations.
+            observed = abs(x2 - x1)
+            if 0.25 * width < observed < 1.5 * width:
+                r = LANE_WIDTH_LEARN_RATE
+                self.lane_width_px = (1.0 - r) * self.lane_width_px + r * observed
+
+        elif count == 1:
+            vx = (message.vector_1[0].x + message.vector_1[1].x) / 2.0
+            offset = self.lane_width_px / 2.0
+            # Boundary left of frame centre -> lane lies to its right.
+            centre = vx + offset if vx < half else vx - offset
+
+        if centre is None:
+            # Blind: coast on the last steering command, decaying toward straight.
             self.lane_visible = False
-            self.lane_turn = LANE_LOST_TURN * (1.0 if self.lane_turn >= 0 else -1.0)
+            if self.lane_lost_since is None:
+                self.lane_lost_since = now
+            if now - self.lane_lost_since > LANE_LOST_MAX_SEC:
+                self.lane_turn = 0.0
+            else:
+                self.lane_turn *= LANE_LOST_DECAY
             return
 
         self.lane_visible = True
+        self.lane_lost_since = None
 
-        if message.vector_count == 2:
-            # Midpoint between the inner edges of the two boundaries.
-            mid = (message.vector_1[1].x + message.vector_2[0].x) / 2.0
-            deviation = half - mid
-            self.lane_turn = LANE_KP * (deviation / half)
+        # --- PD on normalised deviation ---
+        deviation = (half - centre) / half          # +ve => lane centre is left
+        dt = (now - self.prev_lane_time) if self.prev_lane_time else 0.0
+        derivative = ((deviation - self.prev_deviation) / dt) if dt > 1e-3 else 0.0
+        self.prev_deviation = deviation
+        self.prev_lane_time = now
 
-        else:
-            # Single boundary: steer away from whichever side it sits on.
-            vx = (message.vector_1[0].x + message.vector_1[1].x) / 2.0
-            if vx < half:
-                self.lane_turn = -SINGLE_LINE_PUSH   # line on left -> go right
-            else:
-                self.lane_turn = SINGLE_LINE_PUSH    # line on right -> go left
+        raw_turn = LANE_KP * deviation + LANE_KD * derivative
 
+        # --- EMA smoothing: suppresses the straight-line weave ---
+        a = TURN_SMOOTHING
+        self.lane_turn = a * self.lane_turn + (1.0 - a) * raw_turn
         self.lane_turn = max(min(self.lane_turn, TURN_MAX), -TURN_MAX)
 
     def lidar_callback(self, message):
-        """Extract front clearance and left/right escape room from the scan."""
-        ranges = list(message.ranges)
+        """
+        Extract front clearance and left/right escape room from the scan.
+
+        IMPORTANT: this scan spans angle_min..angle_max (here -pi..+pi), so
+        index 0 is NOT straight ahead - forward is wherever angle == 0 falls.
+        We therefore map each desired bearing (0 = forward, +90 = left,
+        -90 = right, in the sensor frame) to an index via angle_min and
+        angle_increment, rather than assuming index 0 faces forward.
+        """
+        ranges = message.ranges
         n = len(ranges)
         if n == 0:
             return
 
+        angle_min = message.angle_min
+        angle_inc = message.angle_increment if message.angle_increment else (
+            2.0 * math.pi / n)
+
+        def idx_for(bearing_rad):
+            i = int(round((bearing_rad - angle_min) / angle_inc))
+            return max(0, min(n - 1, i))
+
         def sector_min(center_deg, half_width_deg):
-            """Minimum valid range in an angular sector centred on the nose."""
-            per_deg = n / 360.0
-            lo = int((center_deg - half_width_deg) * per_deg) % n
-            hi = int((center_deg + half_width_deg) * per_deg) % n
-            if lo <= hi:
-                window = ranges[lo:hi + 1]
-            else:
-                window = ranges[lo:] + ranges[:hi + 1]
+            """Minimum valid range in an angular sector about a bearing."""
+            c = math.radians(center_deg)
+            lo = idx_for(c - math.radians(half_width_deg))
+            hi = idx_for(c + math.radians(half_width_deg))
+            if lo > hi:
+                lo, hi = hi, lo
+            window = ranges[lo:hi + 1]
             valid = [r for r in window
                      if r is not None and not math.isinf(r)
                      and not math.isnan(r) and r > 0.05]
             return min(valid) if valid else float('inf')
 
-        # Index 0 is assumed to face forward; adjust if the scan is offset.
+        # Bearings in the sensor frame: 0 rad = forward, +90 = left, -90 = right.
         self.front_dist = sector_min(0, FRONT_ARC_DEG)
         self.left_clear = sector_min(90, SIDE_ARC_DEG)
-        self.right_clear = sector_min(270, SIDE_ARC_DEG)
+        self.right_clear = sector_min(-90, SIDE_ARC_DEG)
         self.obstacle_block = self.front_dist < OBSTACLE_STOP_DIST
+
+        # Throttled debug: prove what the front sector sees. Remove once tuned.
+        if DEBUG_LIDAR:
+            now = time.time()
+            if now - self._last_lidar_log > 0.5:
+                self._last_lidar_log = now
+                self.get_logger().info(
+                    f"[LIDAR] front={self.front_dist:.2f} "
+                    f"L={self.left_clear:.2f} R={self.right_clear:.2f} "
+                    f"block={self.obstacle_block}")
 
     def qr_detection_callback(self, message):
         """Normalise a QR payload such as '{LOC: PATIENT_1}' to 'PATIENT_1'."""
@@ -478,9 +556,16 @@ class LineFollower(Node):
                 self.set_state(State.AT_BUILDING)
             return
 
-        # Speed schedule: bleed speed proportionally to steering effort.
+        # Speed schedule: bleed speed with steering effort, and slow further
+        # when lane confidence drops - losing an edge usually means a corner.
         speed = SPEED_CRUISE - TURN_SLOWDOWN_GAIN * abs(turn) * (
             SPEED_CRUISE - SPEED_CORNER)
+
+        if self.lane_confidence <= 1:
+            speed = min(speed, SPEED_CORNER)
+        if not self.lane_visible:
+            speed = min(speed, SPEED_APPROACH)
+
         self.set_control(speed, turn)
 
     def handle_at_building(self):
