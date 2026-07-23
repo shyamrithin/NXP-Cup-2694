@@ -107,7 +107,7 @@
 	<!-- Uncomment the below components as and when required -->
 	
 	<!-- Sign Boards -->
-	<!--
+
 	<include>
 		<uri>models://sign_board_1</uri>
 		<name>sign_board_1</name>
@@ -158,11 +158,11 @@
 		<name>sign_board_10</name>
 		<pose>12.3 16.3 0.8 0 0 0</pose>
 	</include>
-	-->
+
 	
 
 	<!-- Patient 1 -->
-	<!--
+
 	<include>
 		<uri>models://some_office</uri>
 		<name>home_1</name>
@@ -178,11 +178,11 @@
 		<name>patient_1</name>
 		<pose>-2 14 0 0 0 -0.7</pose>
 	</include>
-	-->
+
 
 	
 	<!-- Patient 2 -->
-	<!--
+
 	<include>
 		<uri>models://some_office</uri>
 		<name>home_2</name>
@@ -198,11 +198,11 @@
 		<name>patient_2</name>
 		<pose>15.810500 -1.799490 0 0 0 0</pose>
 	</include>
-	-->
+
 	
 
 	<!-- Patient 3 -->
-	<!--
+
 	<include>
 		<uri>models://some_office</uri>
 		<name>home_3</name>
@@ -218,11 +218,11 @@
 		<name>patient_3</name>
 		<pose>2.164130 31.967300 0 0 0 0.1</pose>
 	</include>
-	-->
+
 
 
 	<!-- Hospital 1 -->
-	<!--
+
 	<include>
 		<uri>models://Hospital</uri>
 		<name>hospital_1</name>
@@ -238,11 +238,11 @@
 		<name>Parking_Lot_1</name>
 		<pose>4.19 -10.0 -0.01 0 0 1.55</pose>
 	</include>
-	-->
+
 
 	
 	<!-- Hospital 2 -->
-	<!--
+
 	<include>
 		<uri>models://Hospital</uri>
 		<name>hospital_2</name>
@@ -258,11 +258,11 @@
 		<name>Parking_Lot_2</name>
 		<pose>-6.15 8.40 -0.01 0 0 -1.60</pose>
 	</include>
-	-->
+
 
 	
 	<!-- Hospital 3 -->
-	<!--
+
 	<include>
 		<uri>models://Hospital</uri>
 		<name>hospital_3</name>
@@ -278,11 +278,11 @@
 		<name>Parking_Lot_3</name>
 		<pose>17 11.83 -0.01 0 0 2.60</pose>
 	</include>
-	-->
+
 
 
 	<!-- Hospital 1 Parking Lot Cones -->
-	<!--
+
 	<include>
 		<uri>models://Construction_Cone_mini</uri>
 		<name>h1_c1</name>
@@ -358,11 +358,11 @@
 		<name>h1_c15</name>
 		<pose>3.454960 -9.047330 0 0 0 0</pose>
 	</include>
-	-->
+
 
 
 	<!-- Hospital 2 Parking Lot Cones -->
-	<!--
+
 	<include>
 		<uri>models://Construction_Cone_mini</uri>
 		<name>h2_c1</name>
@@ -438,11 +438,11 @@
 		<name>h2_c15</name>
 		<pose>-5.450730 6.595300 0 0 0 0</pose>
 	</include>
-	-->
+
 
 
 	<!-- Hospital 3 Parking Lot Cones -->
-	<!--
+
 	<include>
 		<uri>models://Construction_Cone_mini</uri>
 		<name>h3_c1</name>
@@ -518,7 +518,7 @@
 		<name>h3_c15</name>
 		<pose>15.0814 12.1138 0 0 0 0</pose>
 	</include>
-	-->
+
 
 
 

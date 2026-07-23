@@ -1,16 +1,38 @@
-# Copyright 2024-2026 NXP
+# =============================================================================
+# b3rb_ros_qr_detector.py
+# -----------------------------------------------------------------------------
+# NXP Cup India 2026 - Autonomous Medical Response
+# Node: "qr_detect"
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# PURPOSE
+#   Decodes the QR codes mounted on patient and hospital buildings and
+#   republishes the payload (e.g. "{LOC: HOSPITAL_1}") on /qr_detection.
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# WHY THIS DIFFERS FROM THE SHIPPED SKELETON
+#   The simulated camera publishes 320x240 frames. At realistic approach
+#   distances the QR occupies only ~60-110 px, which is below the reliable
+#   working range of cv2.QRCodeDetector - it receives frames but returns no
+#   decode. This version therefore:
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+#     1. Uses pyzbar as the primary decoder (markedly better on small, slightly
+#        skewed codes) and keeps cv2.QRCodeDetector as a fallback.
+#     2. Upscales the frame before decoding, which materially improves the hit
+#        rate on distant codes at negligible cost for 320x240 input.
+#     3. Also attempts a contrast-normalised grayscale pass, which helps when
+#        the board is washed out or in shadow.
+#
+# ROBUSTNESS NOTE (important for evaluation)
+#   pyzbar is a ctypes wrapper around the system library libzbar0. That is an
+#   apt package, not a pip one, so it may be absent on the evaluation machine.
+#   The import is therefore guarded and the node degrades to cv2 rather than
+#   crashing on startup - a missing shared library must never take the QR
+#   pipeline down mid-run.
+#
+# DIAGNOSTICS
+#   Set DEBUG_FRAMES = True to log a frame counter every few seconds. This
+#   distinguishes "no frames arriving" from "frames arriving but not decoding",
+#   which are very different faults.
+# =============================================================================
 
 import rclpy
 from rclpy.node import Node
@@ -19,78 +41,136 @@ from std_msgs.msg import String
 import cv2
 import numpy as np
 
-# HINT: If you want to use pyzbar for QR code detection, you can install it using:
-# pip install pyzbar
-# And uncomment/import it here:
-# try:
-#     from pyzbar import pyzbar
-# except ImportError:
-#     pyzbar = None
+# --- Guarded pyzbar import: never let a missing native lib kill the node. ---
+try:
+    from pyzbar import pyzbar
+    PYZBAR_AVAILABLE = True
+except Exception:
+    pyzbar = None
+    PYZBAR_AVAILABLE = False
+
+# =============================================================================
+# CONFIG
+# =============================================================================
+
+UPSCALE = 2.0            # decode-time upscale factor for small/distant codes
+DEBUG_FRAMES = True      # log frame/decode counters while tuning
+DEBUG_PERIOD = 3.0       # seconds between diagnostic logs
+REPEAT_LOG_SUPPRESS = True   # only log when the decoded value changes
+
 
 class QRDetector(Node):
-    """
-    ROS 2 Node that processes raw camera images to scan for QR codes.
-    It publishes the detected QR code payload on the `/qr_detection` topic.
-    """
+    """Processes camera frames and publishes any decoded QR payload."""
+
     def __init__(self):
         super().__init__('qr_detector')
 
-        # Subscription for camera images.
         self.subscription_camera = self.create_subscription(
             CompressedImage,
             '/camera/image_raw/compressed',
             self.camera_image_callback,
             10)
 
-        # Publisher for QR code detection results.
-        self.publisher_qr = self.create_publisher(
-            String,
-            '/qr_detection',
-            10)
+        self.publisher_qr = self.create_publisher(String, '/qr_detection', 10)
 
-        self.get_logger().info("QR Detector Node started. Waiting for images...")
+        self._cv_detector = cv2.QRCodeDetector()
+        self._frames = 0
+        self._decodes = 0
+        self._last_payload = None
+        self._last_debug = self.get_clock().now()
+
+        backend = "pyzbar (+cv2 fallback)" if PYZBAR_AVAILABLE else "cv2 only"
+        self.get_logger().info(f"QR Detector started. Backend: {backend}")
+        if not PYZBAR_AVAILABLE:
+            self.get_logger().warn(
+                "pyzbar unavailable (is libzbar0 installed?) - decode range "
+                "will be noticeably shorter.")
+
+    # -------------------------------------------------------------------------
 
     def camera_image_callback(self, message):
-        """Processes incoming camera frames to detect QR codes."""
-        # Convert compressed image message to OpenCV format
         np_arr = np.frombuffer(message.data, np.uint8)
         image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        if image is None:
+            return
 
-        qr_data = self.detect_qr_code(image)
+        self._frames += 1
 
-        if qr_data is not None:
-            # Publish the decoded QR payload
+        payload = self.detect_qr_code(image)
+
+        if payload:
+            self._decodes += 1
             msg = String()
-            msg.data = qr_data
+            msg.data = payload
             self.publisher_qr.publish(msg)
-            self.get_logger().info(f"Published QR Data: {qr_data}")
+
+            if not REPEAT_LOG_SUPPRESS or payload != self._last_payload:
+                self.get_logger().info(f"Published QR Data: {payload}")
+            self._last_payload = payload
+        else:
+            self._last_payload = None
+
+        self._maybe_log_diagnostics()
+
+    def _maybe_log_diagnostics(self):
+        if not DEBUG_FRAMES:
+            return
+        now = self.get_clock().now()
+        elapsed = (now - self._last_debug).nanoseconds / 1e9
+        if elapsed >= DEBUG_PERIOD:
+            self.get_logger().info(
+                f"[QR-DIAG] frames={self._frames} decodes={self._decodes}")
+            self._last_debug = now
+
+    # -------------------------------------------------------------------------
 
     def detect_qr_code(self, image):
         """
-        Detect and decode QR code in the image.
-        
-        OPTIMIZATION HINTS:
-        - OpenCV has a built-in QR Code detector: cv2.QRCodeDetector().
-        - Alternatively, you can use Pyzbar (a popular and robust library for barcode/QR code reading).
-        - Ensure to pre-process the image (e.g., convert to grayscale, thresholding, cropping to region 
-          of interest where the building/QR board is expected to appear) to improve speed and reliability.
+        Try progressively more aggressive strategies, cheapest first.
+        Returns the decoded string, or None.
         """
-        # --- Method 1: Using OpenCV Built-in QR Detector ---
-        try:
-            detector = cv2.QRCodeDetector()
-            data, bbox, straight_qrcode = detector.detectAndDecode(image)
-            if bbox is not None and data != "":
-                return data
-        except Exception as e:
-            self.get_logger().debug(f"OpenCV QR Detection failed: {e}")
+        # Upscaling is the single biggest win for small codes.
+        if UPSCALE and UPSCALE != 1.0:
+            big = cv2.resize(image, None, fx=UPSCALE, fy=UPSCALE,
+                             interpolation=cv2.INTER_CUBIC)
+        else:
+            big = image
 
-        # --- Method 2: Placeholder for Pyzbar ---
-        # if pyzbar is not None:
-        #     decoded_objects = pyzbar.decode(image)
-        #     for obj in decoded_objects:
-        #         return obj.data.decode('utf-8')
+        gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+
+        # --- 1. pyzbar on the upscaled grayscale image ---
+        if PYZBAR_AVAILABLE:
+            result = self._try_pyzbar(gray)
+            if result:
+                return result
+
+            # --- 2. pyzbar on a contrast-normalised copy ---
+            equalised = cv2.equalizeHist(gray)
+            result = self._try_pyzbar(equalised)
+            if result:
+                return result
+
+        # --- 3. OpenCV fallback ---
+        try:
+            data, bbox, _ = self._cv_detector.detectAndDecode(big)
+            if bbox is not None and data:
+                return data
+        except Exception as exc:
+            self.get_logger().debug(f"cv2 QR detection failed: {exc}")
 
         return None
+
+    def _try_pyzbar(self, gray_image):
+        try:
+            for obj in pyzbar.decode(gray_image):
+                if obj.data:
+                    return obj.data.decode('utf-8', errors='replace')
+        except Exception as exc:
+            self.get_logger().debug(f"pyzbar decode failed: {exc}")
+        return None
+
+
+# =============================================================================
 
 def main(args=None):
     rclpy.init(args=args)
@@ -101,7 +181,9 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
