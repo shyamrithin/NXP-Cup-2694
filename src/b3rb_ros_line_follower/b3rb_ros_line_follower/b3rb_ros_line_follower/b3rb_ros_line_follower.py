@@ -292,6 +292,21 @@ class LineFollower(Node):
     def time_in_state(self):
         return time.time() - self.state_entered
 
+    def effective_target(self):
+        """
+        The building we are currently trying to reach.
+
+        At mission start (and after each delivery) we have no assignment yet,
+        so ANY patient building is a legitimate target - that is how the first
+        patient is found. Once the server assigns a hospital, that becomes the
+        target until the delivery completes.
+        """
+        if self.target_building is not None:
+            return self.target_building
+        if self.last_qr and self.last_qr.startswith("PATIENT"):
+            return self.last_qr
+        return None
+
     def qr_is_fresh(self):
         return (self.last_qr is not None
                 and (time.time() - self.last_qr_time) < QR_FRESH_SEC)
@@ -567,10 +582,12 @@ class LineFollower(Node):
             bias = bias if self.left_clear > self.right_clear else -bias
             turn = max(min(turn + bias, TURN_MAX), -TURN_MAX)
 
-        # If a fresh QR shows our target, slow down for the approach.
-        if self.qr_is_fresh() and self.last_qr == self.target_building:
+        # If a fresh QR shows our target, slow down for the approach. With no
+        # assignment yet, any patient building counts (see effective_target).
+        target = self.effective_target()
+        if target and self.qr_is_fresh() and self.last_qr == target:
             self.set_control(SPEED_APPROACH, turn)
-            if self.in_zone_for(self.target_building):
+            if self.in_zone_for(target):
                 self.set_state(State.AT_BUILDING)
             return
 
@@ -588,7 +605,7 @@ class LineFollower(Node):
 
     def handle_at_building(self):
         """We are stopped inside a zone with a confirmed QR. Transmit."""
-        if not self.in_zone_for(self.target_building):
+        if not self.in_zone_for(self.effective_target()):
             # Lost confidence - back out rather than risk an INVALID penalty.
             self.set_state(
                 State.SEEK_HOSPITAL if self.assigned_hospital
