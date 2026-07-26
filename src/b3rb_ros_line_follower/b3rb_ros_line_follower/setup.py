@@ -14,7 +14,12 @@ setup(
     version='0.0.0',
     packages=find_packages(exclude=['test']),
     package_data={
-        package_name: ['*.h5'],
+        # Model weights that must travel with the submission.
+        # '*.h5' was shipped by NXP for a Keras model; '*.pt' is added for the
+        # PyTorch sign board detector (sign_detector.pt). Without this entry
+        # colcon does not copy the weights into install/, so the detect node
+        # starts up, fails to find the model, and silently detects nothing.
+        package_name: ['*.h5', '*.pt'],
     },
     data_files=standard_data_files,
     install_requires=['setuptools'],
