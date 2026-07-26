@@ -65,7 +65,15 @@ Use this to report your progress and receive targets:
 
 ---
 
-## 4. Development Hints & Tasks
+## 4. ROS Node Graph
+
+As requested by you guys, here is the ROS Node graph you can refer:
+
+![ROS Node Graph](Images/ROS_NODE_graph.png)
+
+---
+
+## 5. Development Hints & Tasks
 
 1.  **Lane Following (`b3rb_ros_edge_vectors.py` & `b3rb_ros_line_follower.py`)**:
     *   The vector node provides a default threshold on gray scale. Optimize this by converting to **HSV space** and thresholding for black lane boundary markings.
