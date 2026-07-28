@@ -83,6 +83,13 @@ YAW_HOLD_KP = 0.9            # P gain holding the last known heading when blind
 # two-boundary case instead of stepping to a fixed push value.
 LANE_WIDTH_INIT_FRAC = 0.70  # initial guess as a fraction of image width
 LANE_WIDTH_LEARN_RATE = 0.10 # EMA rate for the learned width
+# With a single boundary visible we place the lane centre at half a learned
+# width from it - but if that learned width is even slightly small, the aim
+# point sits too close to the ONE boundary we can actually see, and that is
+# precisely the line we are about to touch. Erring outward costs nothing
+# (the far side is open, or we would be seeing two edges) and directly buys
+# clearance from a known black line.
+SINGLE_EDGE_MARGIN = 1.18    # multiplier on the half-width offset
 
 # --- obstacle avoidance ---
 OBSTACLE_STOP_DIST = 0.55    # metres, emergency hard-avoid
@@ -91,7 +98,21 @@ OBSTACLE_BIAS_MAX = 0.55     # max steering added by avoidance (was fixed 0.4)
 FRONT_ARC_DEG = 22           # +/- degrees treated as "front path" (narrow!)
 SIDE_ARC_DEG = 55            # sector used to pick a dodge direction
 ZONE_ARC_DEG = 85            # wide arc used ONLY for "am I beside a building"
-DEBUG_LIDAR = True           # print front/side clearances at 2 Hz for tuning
+
+# A fixed angular cone is the wrong model for collision checking, and it let
+# the buggy drive into a tree: a thin trunk sitting 25 deg off centre falls
+# outside a +/-22 deg arc entirely, yet the vehicle is easily wide enough to
+# clip it. The angle that matters also grows as range closes - an obstacle
+# subtends ~22 deg at 1.0 m but ~34 deg at 0.6 m. So instead of an arc we
+# project every return into forward/lateral components and ask the question
+# that actually matters: will this hit my body if I keep going straight?
+# Nav2 reports this footprint's inscribed radius as 0.402 m, which for a
+# longer-than-wide body is its half-width - so the corridor must be wider than
+# that or we are checking a path narrower than the vehicle. 0.55 leaves ~15 cm
+# of margin, which also covers the lateral drift of a steering correction.
+CORRIDOR_HALF_WIDTH = 0.55   # metres; vehicle half-width plus safety margin
+CORRIDOR_ARC_DEG = 80        # only returns within this bearing can be ahead
+DEBUG_LIDAR = False          # print clearances at 2 Hz for tuning
 
 # --- zone estimation (penalty-critical: keep conservative) ---
 # --- zone estimation ---------------------------------------------------------
@@ -147,12 +168,27 @@ ID_BUGGY = 1
 # corner that is a trap - it grinds against the wall indefinitely. These
 # constants drive an explicit escape manoeuvre.
 STUCK_SPEED_MIN = 0.10       # we believe we are driving if commanded above this
-STUCK_MOVE_MIN = 0.25        # metres of travel expected within the window
-STUCK_WINDOW_SEC = 3.0       # no progress for this long => stuck
-REVERSE_SPEED = -0.35        # backing-out speed
-REVERSE_SEC = 2.0            # how long to reverse
-REVERSE_TURN = 0.55          # steer while reversing, to change approach angle
+STUCK_MOVE_MIN = 0.18        # metres of travel expected within the window
+STUCK_WINDOW_SEC = 2.5       # no progress for this long => stuck
+REVERSE_SPEED = -0.40        # backing-out speed
+REVERSE_SEC = 2.5            # how long to reverse
+REVERSE_TURN = 0.80          # steer while reversing, to change approach angle
 RECOVERY_COOLDOWN_SEC = 4.0  # ignore stuck detection just after a recovery
+# Reversing alone was not enough: the buggy backed off a tree and then drove
+# straight into it again, because nothing changed its heading. After backing
+# out we therefore hold a steer away from the obstacle for a moment before
+# normal control resumes.
+ESCAPE_SEC = 1.2             # forced turn-away after reversing
+ESCAPE_TURN = 0.70
+ESCAPE_SPEED = 0.22
+# Odometry here is wheel-derived, so a buggy grinding against a pole with its
+# wheels turning reports forward motion it is not making - which blinds the
+# distance-based detector to the exact case it exists for. This second detector
+# trusts only the LiDAR: if something sits in the collision corridor at contact
+# range while we are commanding forward motion, we are stuck, whatever the
+# odometry claims.
+STUCK_CONTACT_DIST = 0.45    # corridor range that means we are against something
+STUCK_CONTACT_SEC = 2.0      # held for this long while driving => stuck
 
 # --- sign-based routing --------------------------------------------------------
 # The detector publishes a table like "A:LEFT,B:RIGHT,C:STRAIGHT". We keep the
@@ -194,6 +230,9 @@ BEARING_DEADZONE_DEG = 20    # ignore small bearing errors, avoids twitching
 
 # --- mission ---
 WAIT_REPLY_TIMEOUT_SEC = 20.0   # give up waiting for the server and resume
+FIRST_PATIENT = "PATIENT_1"  # NXP: "the first Patient will always be by default
+                             # patient A ... navigate to patient A as soon as
+                             # your buggy is spawned"
 TOTAL_PATIENTS = 3
 PARK_ANNOUNCE_SEC = 45.0     # send PARKED well inside the 60s window
 
@@ -355,6 +394,8 @@ class LineFollower(Node):
         self.right_clear = float('inf')
         self.nearest_dist = float('inf')
         self.nearest_bearing = 0.0
+        self.corridor_dist = float('inf')
+        self.corridor_side = 1.0
         self.lane_deviation = 0.0
         self.approach_since = None
         self.approach_target = None
@@ -390,6 +431,7 @@ class LineFollower(Node):
         self.last_progress_x = 0.0
         self.last_progress_y = 0.0
         self.last_progress_time = time.time()
+        self.contact_since = None
         self.recovery_until = 0.0
         self.recovery_return_state = None
         self.last_recovery_time = 0.0
@@ -498,23 +540,35 @@ class LineFollower(Node):
 
     def is_stuck(self):
         """
-        True when we are commanding forward motion but not actually moving.
+        True when we are commanding forward motion but not actually escaping.
 
-        Compares travelled distance against a time window rather than reading
-        velocity, because a wheel grinding against a wall can still report
-        motion. Only meaningful when we intend to be driving.
+        Two independent detectors, because either can be fooled alone: wheel
+        odometry lies when the wheels spin against an obstacle, and the LiDAR
+        corridor says nothing about a buggy beached on geometry it cannot see.
         """
-        if not self.have_pose:
-            return False
         if self.target_speed < STUCK_SPEED_MIN:
             # Not trying to move (e.g. waiting in a zone) - not stuck.
             self.last_progress_x = self.pose_x
             self.last_progress_y = self.pose_y
             self.last_progress_time = time.time()
+            self.contact_since = None
             return False
         if time.time() - self.last_recovery_time < RECOVERY_COOLDOWN_SEC:
             return False
 
+        # Detector 1: pressed against something. Independent of odometry, which
+        # cannot be trusted when the wheels are spinning against an obstacle.
+        if self.corridor_dist < STUCK_CONTACT_DIST:
+            if self.contact_since is None:
+                self.contact_since = time.time()
+            elif time.time() - self.contact_since > STUCK_CONTACT_SEC:
+                return True
+        else:
+            self.contact_since = None
+
+        # Detector 2: commanding motion but not covering ground.
+        if not self.have_pose:
+            return False
         moved = math.hypot(self.pose_x - self.last_progress_x,
                            self.pose_y - self.last_progress_y)
         if moved > STUCK_MOVE_MIN:
@@ -531,27 +585,41 @@ class LineFollower(Node):
             return
         self.recovery_return_state = self.state
         self.recovery_until = time.time() + REVERSE_SEC
-        # Reverse away from whichever side has less room, so we rotate toward
-        # the opening rather than back into the same trap.
-        self.recovery_turn_sign = -1.0 if self.left_clear < self.right_clear else 1.0
+        # Turn away from the side the corridor intruder is on. That is a direct
+        # measurement of what we hit, unlike comparing side-sector clearances
+        # which mostly reflect the buildings lining the road.
+        self.recovery_turn_sign = -self.corridor_side
         self.get_logger().warn(
-            f"[RECOVERY] stuck detected - reversing out "
-            f"(front={self.front_dist:.2f} L={self.left_clear:.2f} "
-            f"R={self.right_clear:.2f})")
+            f"[RECOVERY] stuck - reversing out "
+            f"(corridor={self.corridor_dist:.2f} side={self.corridor_side:+.0f} "
+            f"L={self.left_clear:.2f} R={self.right_clear:.2f})")
         self.set_state(State.RECOVERY)
 
     def drive_recovery(self):
-        """Back up with steering, then hand control back."""
-        if time.time() >= self.recovery_until:
-            self.last_recovery_time = time.time()
-            self.last_progress_x = self.pose_x
-            self.last_progress_y = self.pose_y
-            self.last_progress_time = time.time()
-            back_to = self.recovery_return_state or State.SEEK_PATIENT
-            self.get_logger().info(f"[RECOVERY] complete -> {back_to.name}")
-            self.set_state(back_to)
+        """Back up, then turn away from the obstacle before resuming."""
+        now = time.time()
+
+        if now < self.recovery_until:
+            self.set_control(REVERSE_SPEED,
+                             REVERSE_TURN * self.recovery_turn_sign)
             return
-        self.set_control(REVERSE_SPEED, REVERSE_TURN * self.recovery_turn_sign)
+
+        # Escape phase: drive forward while holding a turn away from whatever
+        # we hit. Without this the buggy reversed off the obstacle and then
+        # drove straight back into it, since its heading was unchanged.
+        if now < self.recovery_until + ESCAPE_SEC:
+            self.set_control(ESCAPE_SPEED,
+                             ESCAPE_TURN * self.recovery_turn_sign)
+            return
+
+        self.last_recovery_time = now
+        self.last_progress_x = self.pose_x
+        self.last_progress_y = self.pose_y
+        self.last_progress_time = now
+        self.contact_since = None
+        back_to = self.recovery_return_state or State.SEEK_PATIENT
+        self.get_logger().info(f"[RECOVERY] complete -> {back_to.name}")
+        self.set_state(back_to)
 
     def qr_is_fresh(self):
         return (self.last_qr is not None
@@ -617,7 +685,7 @@ class LineFollower(Node):
 
         elif count == 1:
             vx = (message.vector_1[0].x + message.vector_1[1].x) / 2.0
-            offset = self.lane_width_px / 2.0
+            offset = (self.lane_width_px / 2.0) * SINGLE_EDGE_MARGIN
             # Boundary left of frame centre -> lane lies to its right.
             centre = vx + offset if vx < half else vx - offset
 
@@ -760,6 +828,35 @@ class LineFollower(Node):
         # gate and the approach steer, never for obstacle avoidance.
         self.nearest_dist, self.nearest_bearing = sector_min_bearing(
             0, ZONE_ARC_DEG)
+
+        # --- collision corridor -------------------------------------------
+        # Forward clearance to anything that would actually strike the body,
+        # found by projecting each return into forward/lateral components
+        # rather than testing a fixed angular cone. `corridor_side` records
+        # which side the closest intruder sits on, so avoidance can steer away
+        # from it instead of guessing from side-sector clearances (which mostly
+        # measure the buildings flanking the road).
+        corridor = float('inf')
+        corridor_lat = 0.0
+        lo = idx_for(math.radians(-CORRIDOR_ARC_DEG))
+        hi = idx_for(math.radians(CORRIDOR_ARC_DEG))
+        if lo > hi:
+            lo, hi = hi, lo
+        for i in range(lo, hi + 1):
+            r = ranges[i]
+            if r is None or math.isinf(r) or math.isnan(r) or r <= 0.05:
+                continue
+            b = angle_min + i * angle_inc
+            forward = r * math.cos(b)
+            if forward <= 0.0:
+                continue
+            lateral = r * math.sin(b)
+            if abs(lateral) < CORRIDOR_HALF_WIDTH and forward < corridor:
+                corridor = forward
+                corridor_lat = lateral
+        self.corridor_dist = corridor
+        # +1 => intruder on our left, so we should steer right, and vice versa.
+        self.corridor_side = 1.0 if corridor_lat >= 0.0 else -1.0
 
         # Throttled debug: prove what the front sector sees. Remove once tuned.
         if DEBUG_LIDAR:
@@ -958,8 +1055,15 @@ class LineFollower(Node):
             return
 
         if self.state == State.INIT:
-            # No target yet: explore and scan whatever we encounter.
-            self.target_building = None
+            # The first patient is fixed by the rules, so we start seeking it
+            # immediately rather than wandering until some patient happens to
+            # appear. This also makes sign boards useful from the very first
+            # frame: with a target set, a table containing "A:LEFT" can be
+            # acted on at spawn instead of being discarded for want of anything
+            # to look up.
+            self.target_building = FIRST_PATIENT
+            self.get_logger().info(f"[MISSION] first target -> {FIRST_PATIENT}")
+            self.latch_turn_for_target()
             self.set_state(State.SEEK_PATIENT)
 
         elif self.state in (State.SEEK_PATIENT, State.SEEK_HOSPITAL):
@@ -1033,25 +1137,24 @@ class LineFollower(Node):
             turn = max(min(turn + self.goal_steer_bias(target_now),
                            TURN_MAX), -TURN_MAX)
 
-        # Emergency: something very close, dead ahead. Steer hard toward the
-        # side with more room but KEEP part of the lane term so we don't rotate
-        # blindly across a boundary.
-        if self.front_dist < OBSTACLE_STOP_DIST:
-            escape = 0.7 if self.left_clear > self.right_clear else -0.7
-            turn = max(min(0.5 * self.lane_turn + escape, TURN_MAX), -TURN_MAX)
+        # Emergency: something is inside our corridor and very close. Steer
+        # away from the side the intruder is actually on, rather than toward
+        # whichever side sector happens to read further - side sectors mostly
+        # measure the buildings lining the road and are a poor escape signal.
+        if self.corridor_dist < OBSTACLE_STOP_DIST:
+            escape = -self.corridor_side * 0.8
+            turn = max(min(0.4 * self.lane_turn + escape, TURN_MAX), -TURN_MAX)
             self.set_control(SPEED_CORNER, turn)   # crawl, don't fully stop
             return
 
-        # Proportional avoidance: ramps from 0 at OBSTACLE_SLOW_DIST to full
-        # at OBSTACLE_STOP_DIST. No fixed slap, so driving parallel to a wall
-        # that only clips the far edge of the front arc barely perturbs us.
-        if self.front_dist < OBSTACLE_SLOW_DIST:
+        # Proportional avoidance, ramping from nothing at OBSTACLE_SLOW_DIST to
+        # full at OBSTACLE_STOP_DIST.
+        if self.corridor_dist < OBSTACLE_SLOW_DIST:
             span = OBSTACLE_SLOW_DIST - OBSTACLE_STOP_DIST
-            severity = (OBSTACLE_SLOW_DIST - self.front_dist) / max(span, 1e-3)
+            severity = (OBSTACLE_SLOW_DIST - self.corridor_dist) / max(span, 1e-3)
             severity = max(0.0, min(1.0, severity))
-            bias = OBSTACLE_BIAS_MAX * severity
-            bias = bias if self.left_clear > self.right_clear else -bias
-            turn = max(min(turn + bias, TURN_MAX), -TURN_MAX)
+            turn = max(min(turn - self.corridor_side * OBSTACLE_BIAS_MAX * severity,
+                           TURN_MAX), -TURN_MAX)
 
         # --- arrival at the target building ------------------------------
         # Entering the approach requires a fresh decode of the target, but
