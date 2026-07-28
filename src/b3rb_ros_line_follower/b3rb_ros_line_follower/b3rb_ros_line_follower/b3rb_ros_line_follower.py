@@ -90,6 +90,7 @@ OBSTACLE_SLOW_DIST = 1.10    # metres, begin proportional evasive steer
 OBSTACLE_BIAS_MAX = 0.55     # max steering added by avoidance (was fixed 0.4)
 FRONT_ARC_DEG = 22           # +/- degrees treated as "front path" (narrow!)
 SIDE_ARC_DEG = 55            # sector used to pick a dodge direction
+ZONE_ARC_DEG = 85            # wide arc used ONLY for "am I beside a building"
 DEBUG_LIDAR = True           # print front/side clearances at 2 Hz for tuning
 
 # --- zone estimation (penalty-critical: keep conservative) ---
@@ -102,6 +103,36 @@ DEBUG_LIDAR = True           # print front/side clearances at 2 Hz for tuning
 # raised to compensate, so the extra distance costs little time.
 ZONE_WALL_DIST = 1.70
 QR_FRESH_SEC = 1.5           # a QR read older than this is not trusted
+
+# --- arrival / approach --------------------------------------------------------
+# Reading a building's QR is itself strong evidence of being in its zone: the
+# code only decodes within ~2.35 m, the board faces the road, and the zone
+# images show the zone covering the road frontage. So once we have been reading
+# the TARGET's code continuously while crawling, we transmit even if the
+# distance gate never trips. Sailing past scores nothing at all, which is far
+# worse than transmitting from slightly off-centre.
+APPROACH_COMMIT_SEC = 3.0    # sustained approach that counts as arrival
+APPROACH_MAX_SEC = 8.0       # hard cap on a single approach
+APPROACH_STALL_SEC = 1.5     # secondary trigger: closing has stopped improving
+APPROACH_PROGRESS_M = 0.05   # closing less than this does not count as progress
+APPROACH_STEER_MAX = 0.45    # authority to steer toward the building while closing
+APPROACH_ARC_DEG = 75        # arc searched for the building we are pulling up to
+# Once we commit to a building we do NOT abandon it the moment the code leaves
+# frame. At cruise the buggy gets only a short burst of decodes as it comes
+# level with a board; if losing freshness cancelled the approach it would
+# accelerate away from a building it had already decided to visit. Instead we
+# hold the commitment and crawl, which nearly always lets the decode return.
+APPROACH_QR_GRACE_SEC = 4.0  # keep approaching this long after the code drops out
+APPROACH_REACQUIRE_SPEED = 0.14   # crawl while waiting for the code to return
+
+# --- corner safety -------------------------------------------------------------
+# Running wide in a bend puts a wheel over the black boundary, which is a scored
+# penalty every time. Deviation is a better predictor of that than steering
+# effort alone, so large deviation forces a hard slowdown regardless of what the
+# smoothed steering command currently reads.
+DEVIATION_SLOW = 0.35        # |normalised deviation| that triggers hard slowdown
+SPEED_TURN_HARD = 0.26       # speed used when deviation says we are running wide
+LANE_KP_FAR = 1.35           # proportional gain once deviation exceeds DEVIATION_SLOW
 
 # --- server protocol ---
 ACK_TIMEOUT_SEC = 1.0        # wait before resending an unacked message
@@ -132,6 +163,18 @@ RECOVERY_COOLDOWN_SEC = 4.0  # ignore stuck detection just after a recovery
 SIGN_TABLE_TTL_SEC = 30.0    # a sighting stays useful while we drive to the junction
 TURN_COMMIT_STEER = 0.75     # steering magnitude for a committed turn
 TURN_COOLDOWN_SEC = 8.0      # after turning, ignore the same instruction briefly
+
+# Waiting for the lane to vanish before acting on a sign is too late at many
+# junctions: a T-junction or fork often keeps one boundary in view the whole
+# way through, so the commit never fires and we follow whichever edge happens
+# to be visible - possibly down the wrong branch. LiDAR gives a much earlier
+# signal: on a normal street both sides are bounded by buildings, but where a
+# road branches, that side's clearance jumps. We use that to start easing over
+# BEFORE the geometry runs out.
+JUNCTION_OPENING_DIST = 4.0  # side clearance that indicates a branching road
+TURN_EARLY_BIAS = 0.40       # steering applied while easing into the turn
+TURN_DONE_YAW_DEG = 55.0     # rotation that counts as "turn completed"
+LANE_EFFORT_FULL = 0.55      # |lane_turn| at which lane keeping fully overrides
 
 # --- navigation --------------------------------------------------------------
 # Greedy bearing-following, NOT path planning. Buildings are logged with the
@@ -310,8 +353,17 @@ class LineFollower(Node):
         self.front_dist = float('inf')
         self.left_clear = float('inf')
         self.right_clear = float('inf')
+        self.nearest_dist = float('inf')
+        self.nearest_bearing = 0.0
+        self.lane_deviation = 0.0
+        self.approach_since = None
+        self.approach_target = None
+        self.approach_best = float('inf')
+        self.approach_best_time = 0.0
+        self.registered = set()      # patients already transmitted to the server
         self.obstacle_block = False
         self._last_lidar_log = 0.0
+        self._last_zone_log = 0.0
 
         self.last_qr = None
         self.last_qr_time = 0.0
@@ -322,6 +374,7 @@ class LineFollower(Node):
         self.routing_table = {}       # letter code -> 'LEFT' | 'RIGHT' | 'STRAIGHT'
         self.routing_time = 0.0
         self.pending_turn = None      # latched instruction for the next junction
+        self.pending_turn_yaw = None  # heading when it was latched
         self.turn_committed_at = 0.0
         self.was_lane_visible = True
 
@@ -380,7 +433,11 @@ class LineFollower(Node):
         """
         if self.target_building is not None:
             return self.target_building
-        if self.last_qr and self.last_qr.startswith("PATIENT"):
+        # Unassigned: any patient we have NOT already registered is fair game.
+        # Without the registered check the buggy re-stops at a patient it has
+        # already transmitted, waits out the reply timeout, and loses ~20 s.
+        if (self.last_qr and self.last_qr.startswith("PATIENT")
+                and self.last_qr not in self.registered):
             return self.last_qr
         return None
 
@@ -501,8 +558,14 @@ class LineFollower(Node):
                 and (time.time() - self.last_qr_time) < QR_FRESH_SEC)
 
     def at_building_wall(self):
-        """Conservative proxy for 'inside the building zone'."""
-        return self.front_dist < ZONE_WALL_DIST
+        """
+        Conservative proxy for 'inside the building zone'.
+
+        Uses the WIDE arc, not the forward path: the sign board and building
+        face are usually off to one side as we pull alongside, so a narrow
+        forward check would report clear road and we would sail past.
+        """
+        return self.nearest_dist < ZONE_WALL_DIST
 
     def in_zone_for(self, building):
         """Only transmit when BOTH proximity and a fresh matching QR agree."""
@@ -604,10 +667,7 @@ class LineFollower(Node):
         # and the instruction has been spent - clear it so we do not turn again
         # at the following junction.
         if not self.was_lane_visible and self.pending_turn is not None:
-            self.get_logger().info(
-                f"[ROUTE] {self.pending_turn} completed, lane reacquired")
-            self.pending_turn = None
-            self.turn_committed_at = time.time()
+            self.clear_pending_turn("lane reacquired")
         self.was_lane_visible = True
 
         # --- PD on normalised deviation ---
@@ -617,7 +677,14 @@ class LineFollower(Node):
         self.prev_deviation = deviation
         self.prev_lane_time = now
 
-        raw_turn = LANE_KP * deviation + LANE_KD * derivative
+        # Progressive gain: a small deviation gets a gentle correction, but once
+        # we are genuinely running wide the gain rises sharply. Constant gain
+        # tuned soft enough to avoid weaving on straights is, by construction,
+        # too soft to pull us back from the edge of a bend - which is where the
+        # black boundary is.
+        kp = LANE_KP if abs(deviation) < DEVIATION_SLOW else LANE_KP_FAR
+        raw_turn = kp * deviation + LANE_KD * derivative
+        self.lane_deviation = deviation
 
         # --- EMA smoothing: suppresses the straight-line weave ---
         a = TURN_SMOOTHING
@@ -660,11 +727,39 @@ class LineFollower(Node):
                      and not math.isnan(r) and r > 0.05]
             return min(valid) if valid else float('inf')
 
+        def sector_min_bearing(center_deg, half_width_deg):
+            """Nearest range in a sector AND the bearing (deg) it was found at."""
+            c = math.radians(center_deg)
+            lo = idx_for(c - math.radians(half_width_deg))
+            hi = idx_for(c + math.radians(half_width_deg))
+            if lo > hi:
+                lo, hi = hi, lo
+            best_r, best_i = float('inf'), None
+            for i in range(lo, hi + 1):
+                r = ranges[i]
+                if (r is None or math.isinf(r) or math.isnan(r) or r <= 0.05):
+                    continue
+                if r < best_r:
+                    best_r, best_i = r, i
+            if best_i is None:
+                return float('inf'), 0.0
+            bearing = math.degrees(angle_min + best_i * angle_inc)
+            return best_r, bearing
+
         # Bearings in the sensor frame: 0 rad = forward, +90 = left, -90 = right.
         self.front_dist = sector_min(0, FRONT_ARC_DEG)
         self.left_clear = sector_min(90, SIDE_ARC_DEG)
         self.right_clear = sector_min(-90, SIDE_ARC_DEG)
         self.obstacle_block = self.front_dist < OBSTACLE_STOP_DIST
+
+        # Buildings sit BESIDE the road, not across it, so "have I arrived at
+        # this building" cannot use the narrow front path - driving past a
+        # building with it on our left leaves front_dist at infinity. This wide
+        # arc answers a different question: is there anything solid close by in
+        # roughly the direction we are facing? It is used only for the zone
+        # gate and the approach steer, never for obstacle avoidance.
+        self.nearest_dist, self.nearest_bearing = sector_min_bearing(
+            0, ZONE_ARC_DEG)
 
         # Throttled debug: prove what the front sector sees. Remove once tuned.
         if DEBUG_LIDAR:
@@ -673,6 +768,7 @@ class LineFollower(Node):
                 self._last_lidar_log = now
                 self.get_logger().info(
                     f"[LIDAR] front={self.front_dist:.2f} "
+                    f"near={self.nearest_dist:.2f} "
                     f"L={self.left_clear:.2f} R={self.right_clear:.2f} "
                     f"block={self.obstacle_block}")
 
@@ -741,8 +837,61 @@ class LineFollower(Node):
         direction = self.routing_table.get(code)
         if direction and direction != self.pending_turn:
             self.pending_turn = direction
+            self.pending_turn_yaw = self.pose_yaw if self.have_pose else None
             self.get_logger().info(
                 f"[ROUTE] {target} ({code}) -> {direction} at next junction")
+
+    def junction_turn_bias(self):
+        """
+        Ease toward a latched turn as soon as a junction is DETECTED, rather
+        than waiting for the lane to disappear.
+
+        The junction signal is a side opening: clearance on that side much
+        larger than a street lined with buildings would give.
+
+        PRIORITY RULE - this is the important part. Routing is a PREFERENCE;
+        staying inside the lane is a CONSTRAINT. So whenever the routing nudge
+        opposes what the lane controller is asking for, it is attenuated in
+        proportion to how hard the lane controller is working. Drifting toward
+        the correct branch on a wide-open junction is free; doing it while the
+        lane controller is fighting to keep us off a boundary is how you leave
+        the road. At full lane effort the routing bias vanishes entirely.
+        """
+        if self.pending_turn not in ('LEFT', 'RIGHT'):
+            return 0.0
+
+        side = (self.left_clear if self.pending_turn == 'LEFT'
+                else self.right_clear)
+        if side < JUNCTION_OPENING_DIST:
+            return 0.0                      # no branch that way yet
+
+        sign = 1.0 if self.pending_turn == 'LEFT' else -1.0
+        scale = 1.0 if self.lane_confidence <= 1 else 0.5
+
+        # Lane keeping outranks routing preference.
+        if sign * self.lane_turn < 0:       # bias opposes the lane correction
+            effort = min(abs(self.lane_turn) / LANE_EFFORT_FULL, 1.0)
+            scale *= (1.0 - effort)
+
+        return sign * TURN_EARLY_BIAS * scale
+
+    def turn_completed(self):
+        """True once we have rotated far enough to call the turn done."""
+        if self.pending_turn is None or self.pending_turn_yaw is None:
+            return False
+        if not self.have_pose:
+            return False
+        err = self.pose_yaw - self.pending_turn_yaw
+        err = math.atan2(math.sin(err), math.cos(err))
+        return abs(math.degrees(err)) > TURN_DONE_YAW_DEG
+
+    def clear_pending_turn(self, reason):
+        if self.pending_turn is None:
+            return
+        self.get_logger().info(f"[ROUTE] {self.pending_turn} done ({reason})")
+        self.pending_turn = None
+        self.pending_turn_yaw = None
+        self.turn_committed_at = time.time()
 
     def server_communication_callback(self, message):
         """Route server payloads into the mission state machine."""
@@ -861,6 +1010,16 @@ class LineFollower(Node):
         """
         turn = self.lane_turn
 
+        # Ease onto the branch a sign told us to take, as soon as LiDAR shows
+        # the branch exists. This runs while the lane is still partly visible,
+        # which is exactly the case the lane-loss commit misses.
+        turn = max(min(turn + self.junction_turn_bias(), TURN_MAX), -TURN_MAX)
+
+        # A completed rotation retires the instruction even if the lane never
+        # fully vanished, so we do not carry it into the following junction.
+        if self.turn_completed():
+            self.clear_pending_turn("rotation complete")
+
         # Navigation: if we know where the target is, bias toward its bearing.
         # Authority is low while the lane is clearly visible and high when it
         # is not - i.e. this mostly decides which way to go at intersections,
@@ -894,20 +1053,94 @@ class LineFollower(Node):
             bias = bias if self.left_clear > self.right_clear else -bias
             turn = max(min(turn + bias, TURN_MAX), -TURN_MAX)
 
-        # If a fresh QR shows our target, slow down for the approach. With no
-        # assignment yet, any patient building counts (see effective_target).
+        # --- arrival at the target building ------------------------------
+        # Entering the approach requires a fresh decode of the target, but
+        # STAYING in it does not: see APPROACH_QR_GRACE_SEC. Losing the code
+        # for a moment is normal as the board leaves frame, and abandoning the
+        # approach there was making the buggy accelerate past buildings it had
+        # already committed to.
         target = self.effective_target()
-        if target and self.qr_is_fresh() and self.last_qr == target:
-            self.set_control(SPEED_APPROACH, turn)
-            if self.in_zone_for(target):
-                self.set_state(State.AT_BUILDING)
-            return
+        fresh_on_target = (target and self.qr_is_fresh()
+                           and self.last_qr == target)
+
+        if fresh_on_target and self.approach_since is None:
+            self.approach_since = time.time()
+            self.approach_target = target
+            self.approach_best = float('inf')
+            self.approach_best_time = time.time()
+            self.get_logger().info(f"[APPROACH] closing on {target}")
+
+        if self.approach_since is not None:
+            committed = self.approach_target
+            since_qr = time.time() - self.last_qr_time
+            held = time.time() - self.approach_since
+
+            # Give up only if the code has been gone a long time, or the cap
+            # is reached - not merely because this frame had no decode.
+            if since_qr > APPROACH_QR_GRACE_SEC or held > APPROACH_MAX_SEC:
+                self.get_logger().warn(
+                    f"[APPROACH] abandoning {committed} "
+                    f"(no code for {since_qr:.1f}s, held {held:.1f}s)")
+                self.approach_since = None
+                self.approach_target = None
+            else:
+                if self.nearest_dist < self.approach_best - APPROACH_PROGRESS_M:
+                    self.approach_best = self.nearest_dist
+                    self.approach_best_time = time.time()
+
+                lean = max(min(self.nearest_bearing / 90.0, 1.0), -1.0)
+                turn = max(min(turn + lean * APPROACH_STEER_MAX,
+                               TURN_MAX), -TURN_MAX)
+
+                # While the code is missing, crawl. Stopping dead risks never
+                # improving the viewing angle; crawling usually re-acquires.
+                on_target_now = (self.qr_is_fresh()
+                                 and self.last_qr == committed)
+                self.set_control(
+                    SPEED_APPROACH if on_target_now else APPROACH_REACQUIRE_SPEED,
+                    turn)
+
+                stalled = time.time() - self.approach_best_time
+
+                # Arrival trigger. Measured behaviour: 'near' keeps improving
+                # right up until the code is lost, because pulling alongside
+                # slides the board out of the forward camera's view - so the
+                # buggy never "stops closing" while it can still see the code.
+                # Waiting for a stall therefore means waiting for QR loss.
+                # A sustained approach is the reliable signal, and it is the
+                # one that worked: 3.5 s transmitted successfully at two
+                # different buildings. Stall is kept as a secondary trigger for
+                # the case where we really are blocked.
+                arrived = (self.in_zone_for(committed)
+                           or held > APPROACH_COMMIT_SEC
+                           or (stalled > APPROACH_STALL_SEC and held > 1.0))
+
+                if on_target_now and arrived:
+                    self.get_logger().info(
+                        f"[APPROACH] closest {self.approach_best:.2f} m "
+                        f"after {held:.1f}s - arrived")
+                    self.set_state(State.AT_BUILDING)
+                else:
+                    now_t = time.time()
+                    if now_t - self._last_zone_log > 1.0:
+                        self._last_zone_log = now_t
+                        self.get_logger().info(
+                            f"[ZONE] {committed} near={self.nearest_dist:.2f} "
+                            f"best={self.approach_best:.2f} "
+                            f"qr_age={since_qr:.1f}s held={held:.1f}s")
+                return
 
         # Speed schedule: bleed speed with steering effort, and slow further
         # when lane confidence drops - losing an edge usually means a corner.
         speed = SPEED_CRUISE - TURN_SLOWDOWN_GAIN * abs(turn) * (
             SPEED_CRUISE - SPEED_CORNER)
 
+        # Deviation predicts a boundary excursion better than steering effort
+        # does: the EMA smoothing means the steering command lags the error, so
+        # by the time |turn| is large we are already wide. Braking on deviation
+        # itself reacts earlier.
+        if abs(self.lane_deviation) > DEVIATION_SLOW:
+            speed = min(speed, SPEED_TURN_HARD)
         if self.lane_confidence <= 1:
             speed = min(speed, SPEED_CORNER)
         if not self.lane_visible:
@@ -916,9 +1149,17 @@ class LineFollower(Node):
         self.set_control(speed, turn)
 
     def handle_at_building(self):
-        """We are stopped inside a zone with a confirmed QR. Transmit."""
-        if not self.in_zone_for(self.effective_target()):
-            # Lost confidence - back out rather than risk an INVALID penalty.
+        """We are stopped at a building with a confirmed QR. Transmit."""
+        target = self.effective_target()
+
+        # We may have arrived via the distance gate OR via sustained QR contact
+        # (see the approach logic), so the requirement here is the one that
+        # actually matters for correctness: we are still reading THIS
+        # building's code right now. Re-testing the distance gate would bounce
+        # us straight back out of every QR-persistence arrival.
+        if not (self.qr_is_fresh() and self.last_qr == target):
+            self.get_logger().warn(
+                "[MISSION] lost QR contact on arrival - backing out")
             self.set_state(
                 State.SEEK_HOSPITAL if self.assigned_hospital
                 else State.SEEK_PATIENT)
@@ -930,6 +1171,7 @@ class LineFollower(Node):
             # Protocol uses single-letter codes on the wire (A/B/C), while the
             # QR encodes the full name ({LOC: PATIENT_1}). Translate before TX.
             self.server.send(NAME_TO_CODE.get(building, building))
+            self.registered.add(building)
             self.set_state(State.WAIT_ASSIGNMENT)
 
         elif building.startswith("FAKE"):
@@ -948,6 +1190,12 @@ class LineFollower(Node):
             self.get_logger().info(
                 f"[MISSION] delivered {self.delivered}/{TOTAL_PATIENTS}")
             self.assigned_hospital = None
+            # Clearing the target matters: leaving it set to the hospital we
+            # just delivered to meant that if the next assignment was ever
+            # missed, the buggy resumed seeking that same hospital and then
+            # refused it forever, because assigned_hospital was already None.
+            self.target_building = None
+            self.approach_since = None
             if self.delivered >= TOTAL_PATIENTS:
                 self.set_state(State.SEEK_EXIT)
             else:
