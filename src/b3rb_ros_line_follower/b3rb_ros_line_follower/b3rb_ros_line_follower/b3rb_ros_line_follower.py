@@ -50,7 +50,7 @@ from rclpy.node import Node
 
 from sensor_msgs.msg import Joy, LaserScan
 from nav_msgs.msg import Odometry
-from std_msgs.msg import String
+from std_msgs.msg import Float32, String
 from synapse_msgs.msg import EdgeVectors, ServerCommunication
 
 # =============================================================================
@@ -111,9 +111,14 @@ SINGLE_EDGE_MARGIN = 1.18    # multiplier on the half-width offset
 # fixed offset until the geometry makes sense again. Edge-following is
 # deterministic through forks, islands and width changes alike, and the fixed
 # offset removes the dependence on a learned width that may itself be wrong.
+# Fraction of the space BETWEEN the two boundaries that must be road-bright
+# for them to be believed as the two sides of our lane. Published by the
+# vectors node on /lane_road_fraction.
+ROAD_FRACTION_MIN = 0.55
 LANE_RATIO_MIN = 0.65        # below this the pair is not one lane
 LANE_RATIO_MAX = 1.35        # above this the pair is not one lane
-JUNCTION_TURN = 0.42         # committed steering while crossing a junction
+JUNCTION_KP = 1.30           # gain applied directly (no EMA) at a junction
+JUNCTION_SPEED = 0.22        # crawl through a junction: a tight turn needs time
 JUNCTION_HOLD_SEC = 2.0      # hold the commitment long enough to clear the split
 DEFAULT_BRANCH = 'RIGHT'     # branch taken when no sign instruction applies
 DEBUG_LANE = True            # log observed vs learned lane width at 1 Hz
@@ -417,6 +422,8 @@ class LineFollower(Node):
                                  self.sign_board_callback, QOS)
         self.create_subscription(Odometry, '/cerebri/out/odometry',
                                  self.odometry_callback, QOS)
+        self.create_subscription(Float32, '/lane_road_fraction',
+                                 self.road_fraction_callback, QOS)
 
         # ---------------- publishers ----------------
         self.publisher_joy = self.create_publisher(Joy, '/cerebri/in/joy', QOS)
@@ -436,6 +443,8 @@ class LineFollower(Node):
         self.lane_width_px = None       # learned online from two-edge frames
         self.fork_logged = False
         self.junction_until = 0.0
+        self.junction_take_left = None
+        self.lane_road_fraction = 1.0
         self._last_lane_log = 0.0
         self.prev_deviation = 0.0
         self.prev_lane_time = None
@@ -738,7 +747,21 @@ class LineFollower(Node):
             left_x, right_x = min(x1, x2), max(x1, x2)
 
             ratio = (observed / self.lane_width_px) if self.lane_width_px else 1.0
-            implausible = not (LANE_RATIO_MIN <= ratio <= LANE_RATIO_MAX)
+
+            # Junction detection now uses a MEASUREMENT, not an inference.
+            #
+            # The width ratio could never work here: at the failing junction the
+            # observed width (245 px) was indistinguishable from ordinary road
+            # (234 px), because that junction simply does not produce an
+            # anomalous width. Any threshold either missed it or fired on
+            # normal road.
+            #
+            # The vectors node now reports what actually lies BETWEEN the two
+            # boundaries - road is bright white, an apron or divider is duller
+            # grey. That answers the real question directly: drive between them,
+            # or drive around them.
+            implausible = (self.lane_road_fraction < ROAD_FRACTION_MIN
+                           or not (LANE_RATIO_MIN <= ratio <= LANE_RATIO_MAX))
 
             if implausible:
                 self.junction_until = now + JUNCTION_HOLD_SEC
@@ -748,48 +771,74 @@ class LineFollower(Node):
                 self._last_lane_log = now
                 self.get_logger().info(
                     f"[LANE] observed={observed:.0f} learned="
-                    f"{(self.lane_width_px or 0):.0f} ratio={ratio:.2f} "
+                    f"{(self.lane_width_px or 0):.0f} ratio={ratio:.2f} road={self.lane_road_fraction:.2f} "
                     f"{'JUNCTION' if in_junction else 'centre'}")
 
             if in_junction:
-                # Deliberately stop using the vision centre here.
-                #
-                # Two attempts at inferring the geometry from these vectors
-                # both failed. The reason is that the same measurement is
-                # ambiguous: two boundaries 144 px apart astride the image
-                # centre are either a narrow lane (drive BETWEEN them) or the
-                # sides of a divider island (drive OUTSIDE them), and nothing
-                # in the EdgeVectors message distinguishes those. Aiming at the
-                # midpoint drives into the island; aiming inward from one edge
-                # also drives into the island.
-                #
-                # So at a junction we ignore the ambiguous measurement entirely
-                # and commit to a fixed, gentle turn toward the chosen branch,
-                # holding it long enough to clear the split. It is not clever,
-                # but it is deterministic and it always keeps moving - which is
-                # what a junction needs and what sitting confused does not do.
+                # Do not trust the midpoint here, and do not guess blindly
+                # either. When the two boundaries are not the sides of our
+                # lane, the drivable road is in the space OUTSIDE them - and
+                # one of those two gaps is wider than the other. Steering into
+                # the widest opening is a real measurement rather than a fixed
+                # preference, and it handles forks and divider islands with the
+                # same rule.
+                gap_left = left_x                 # free space to the left edge
+                gap_right = width - right_x       # free space to the right edge
+
                 want = self.pending_turn if self.pending_turn in (
-                    'LEFT', 'RIGHT') else DEFAULT_BRANCH
+                    'LEFT', 'RIGHT') else None
+
+                # LATCH the decision on entry. Recomputing it every frame was
+                # the cause of the left-right-left oscillation: steering toward
+                # the wider gap immediately changes which gap is wider, so the
+                # decision flips, the steering reverses, and the buggy saws at
+                # the wheel until it runs out of road. The choice must be made
+                # once and then held for the whole junction.
+                if self.junction_take_left is None:
+                    if want == 'LEFT':
+                        self.junction_take_left = True
+                    elif want == 'RIGHT':
+                        self.junction_take_left = False
+                    else:
+                        self.junction_take_left = gap_left > gap_right
+                take_left = self.junction_take_left
+
+                # Aim at the middle of the chosen opening.
+                centre = (left_x / 2.0) if take_left else (right_x + width) / 2.0
                 self.lane_visible = True
                 self.lane_lost_since = None
-                self.lane_deviation = 0.0
-                self.lane_turn = (JUNCTION_TURN if want == 'LEFT'
-                                  else -JUNCTION_TURN)
+
+                # Apply the junction turn IMMEDIATELY rather than feeding it
+                # through the EMA smoother. The smoother exists to stop the
+                # steering weaving on straights, but at a junction it is pure
+                # lag: the aim point jumps to the edge of the frame, and by the
+                # time a 0.55-weighted average has caught up the junction has
+                # been driven through. This is also why the wheels were seen
+                # "freaking out" - the command was still ramping when the
+                # geometry changed again.
+                dev = (half - centre) / half
+                self.lane_deviation = dev
+                self.lane_turn = max(min(JUNCTION_KP * dev, TURN_MAX), -TURN_MAX)
+                self.prev_deviation = dev
+                self.prev_lane_time = now
 
                 if not self.fork_logged:
                     self.fork_logged = True
                     self.get_logger().info(
-                        f"[JUNCTION] ambiguous width {observed:.0f}px vs lane "
-                        f"{(self.lane_width_px or 0):.0f}px (ratio {ratio:.2f}) "
-                        f"- committing {want}")
+                        f"[JUNCTION] width {observed:.0f}px (ratio {ratio:.2f}) "
+                        f"gaps L={gap_left:.0f} R={gap_right:.0f} "
+                        f"- taking {'LEFT' if take_left else 'RIGHT'}"
+                        f"{' (sign)' if want else ' (widest)'} "
+                        f"turn={self.lane_turn:+.2f}")
                 return
-
-            self.fork_logged = False
-            centre = (x1 + x2) / 2.0
-            if 0.25 * width < observed < 1.5 * width:
-                r = LANE_WIDTH_LEARN_RATE
-                self.lane_width_px = (
-                    1.0 - r) * self.lane_width_px + r * observed
+            else:
+                self.fork_logged = False
+                self.junction_take_left = None     # ready for the next junction
+                centre = (x1 + x2) / 2.0
+                if 0.25 * width < observed < 1.5 * width:
+                    r = LANE_WIDTH_LEARN_RATE
+                    self.lane_width_px = (
+                        1.0 - r) * self.lane_width_px + r * observed
 
         elif count == 1:
             vx = (message.vector_1[0].x + message.vector_1[1].x) / 2.0
@@ -976,6 +1025,10 @@ class LineFollower(Node):
                     f"near={self.nearest_dist:.2f} "
                     f"L={self.left_clear:.2f} R={self.right_clear:.2f} "
                     f"block={self.obstacle_block}")
+
+    def road_fraction_callback(self, message):
+        """How much of the space between the two boundaries is actually road."""
+        self.lane_road_fraction = float(message.data)
 
     def qr_detection_callback(self, message):
         """Normalise a QR payload such as '{LOC: PATIENT_1}' to 'PATIENT_1'."""
@@ -1442,6 +1495,12 @@ class LineFollower(Node):
         # when lane confidence drops - losing an edge usually means a corner.
         speed = SPEED_CRUISE - TURN_SLOWDOWN_GAIN * abs(turn) * (
             SPEED_CRUISE - SPEED_CORNER)
+
+        # A junction needs a tight turn in a short distance, which simply is
+        # not possible at cruise. Crawling through it is the difference between
+        # making the turn and running wide across the boundary.
+        if time.time() < self.junction_until:
+            speed = min(speed, JUNCTION_SPEED)
 
         # Deviation predicts a boundary excursion better than steering effort
         # does: the EMA smoothing means the steering command lags the error, so
