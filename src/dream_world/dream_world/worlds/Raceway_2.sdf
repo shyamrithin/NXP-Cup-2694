@@ -1,0 +1,701 @@
+<?xml version="1.0"?>
+<sdf version='1.10'>
+  <world name='default'>
+    <light type="directional" name="my_light">
+        <pose>0 0 30 0 0 0</pose>
+        <diffuse>1.0 1.0 1.0 1</diffuse>
+        <specular>.1 .1 .1 1</specular>
+        <attenuation>
+            <range>100</range>
+        </attenuation>
+        <direction>0 0 -1</direction>
+        <cast_shadows>true</cast_shadows>
+    </light>
+    <physics type='ode'>
+      <max_step_size>0.0040000000000000001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+      <real_time_update_rate>250</real_time_update_rate>
+    </physics>
+    <plugin name='gz::sim::systems::Physics' filename='gz-sim-physics-system'/>
+    <plugin name='gz::sim::systems::UserCommands' filename='gz-sim-user-commands-system'/>
+    <plugin name='gz::sim::systems::SceneBroadcaster' filename='gz-sim-scene-broadcaster-system'/>
+    <plugin name='gz::sim::systems::Contact' filename='gz-sim-contact-system'/>
+    <plugin name='gz::sim::systems::Imu' filename='gz-sim-imu-system'/>
+    <plugin name='gz::sim::systems::Magnetometer' filename='gz-sim-magnetometer-system'/>
+    <plugin name='gz::sim::systems::Altimeter' filename='gz-sim-altimeter-system'/>
+    <plugin name='gz::sim::systems::NavSat' filename='gz-sim-navsat-system'/>
+    <plugin name='gz::sim::systems::Sensors' filename='gz-sim-sensors-system'>
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <gui fullscreen='false'>
+      <plugin name='3D View' filename='GzScene3D'>
+        <gz-gui>
+          <title>3D View</title>
+          <property type='bool' key='showTitleBar'>0</property>
+          <property type='string' key='state'>docked</property>
+        </gz-gui>
+        <engine>ogre2</engine>
+        <scene>scene</scene>
+        <ambient_light>0.5984631152222222 0.5984631152222222 0.5984631152222222</ambient_light>
+        <background_color>0.8984631152222222 0.8984631152222222 0.8984631152222222</background_color>
+        <camera_pose>-6 0 6 0 0.5 0</camera_pose>
+      </plugin>
+      <plugin name='World control' filename='WorldControl'>
+        <gz-gui>
+          <title>World control</title>
+          <property type='bool' key='showTitleBar'>0</property>
+          <property type='bool' key='resizable'>0</property>
+          <property type='double' key='height'>72</property>
+          <property type='double' key='width'>121</property>
+          <property type='double' key='z'>1</property>
+          <property type='string' key='state'>floating</property>
+          <anchors target='3D View'>
+            <line own='left' target='left'/>
+            <line own='bottom' target='bottom'/>
+          </anchors>
+        </gz-gui>
+        <play_pause>1</play_pause>
+        <step>1</step>
+        <start_paused>1</start_paused>
+      </plugin>
+      <plugin name='World stats' filename='WorldStats'>
+        <gz-gui>
+          <title>World stats</title>
+          <property type='bool' key='showTitleBar'>0</property>
+          <property type='bool' key='resizable'>0</property>
+          <property type='double' key='height'>110</property>
+          <property type='double' key='width'>290</property>
+          <property type='double' key='z'>1</property>
+          <property type='string' key='state'>floating</property>
+          <anchors target='3D View'>
+            <line own='right' target='right'/>
+            <line own='bottom' target='bottom'/>
+          </anchors>
+        </gz-gui>
+        <sim_time>1</sim_time>
+        <real_time>1</real_time>
+        <real_time_factor>1</real_time_factor>
+        <iterations>1</iterations>
+      </plugin>
+    </gui>
+    <gravity>0 0 -9.8000000000000007</gravity>
+    <magnetic_field>6.0000000000000002e-06 2.3e-05 -4.1999999999999998e-05</magnetic_field>
+    <atmosphere type='adiabatic'/>
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <latitude_deg>39.79480109851339</latitude_deg>
+      <longitude_deg>-84.08631702793322</longitude_deg>
+      <elevation>265.2</elevation>
+      <heading_deg>0</heading_deg>
+    </spherical_coordinates>
+    <scene>
+      <grid>false</grid>
+    </scene>
+
+	<!-- Track -->
+	<include>
+		<uri>models://Raceway_1</uri>
+		<name>track</name>
+		<pose>0 1.35 0 0 0 1.55</pose>
+	</include>
+	<include>
+		<uri>models://nxp_logo</uri>
+		<name>nxpLogo</name>
+		<pose>-1.657510 4.378450 0 0 0 0</pose>
+	</include>
+
+	<!-- Uncomment the below components as and when required -->
+	
+	<!-- Sign Boards -->
+	<!--
+	<include>
+		<uri>models://sign_board_1</uri>
+		<name>sign_board_1</name>
+		<pose>1.26 -2.16 0.8 0 0 1.6</pose>
+	</include>
+	
+	
+	<include>
+		<uri>models://sign_board_2</uri>
+		<name>sign_board_2</name>
+		<pose>4.87 -4.13 0.8 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://sign_board_3</uri>
+		<name>sign_board_3</name>
+		<pose>7.23 -0.85 0.8 0 0 1.5</pose>
+	</include>
+	<include>
+		<uri>models://sign_board_4</uri>
+		<name>sign_board_4</name>
+		<pose>3.52 0.86 0.8 0 0 0.0</pose>
+	</include>
+	<include>
+		<uri>models://sign_board_5</uri>
+		<name>sign_board_5</name>
+		<pose>3.59 9.1 0.8 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://sign_board_6</uri>
+		<name>sign_board_6</name>
+		<pose>4.33 10.5 0.8 0 0 -1.0</pose>
+	</include>
+	<include>
+		<uri>models://sign_board_7</uri>
+		<name>sign_board_7</name>
+		<pose>2.7 10.7 0.8 0 0 1.1</pose>
+	</include>
+	<include>
+		<uri>models://sign_board_8</uri>
+		<name>sign_board_8</name>
+		<pose>11.2 14.5 0.8 0 0 2.2</pose>
+	</include>
+	<include>
+		<uri>models://sign_board_9</uri>
+		<name>sign_board_9</name>
+		<pose>13.2 14.7 0.8 0 0 1.0</pose>
+	</include>
+	<include>
+		<uri>models://sign_board_10</uri>
+		<name>sign_board_10</name>
+		<pose>12.3 16.3 0.8 0 0 0</pose>
+	</include>
+	-->
+	
+
+	<!-- Patient 1 -->
+	<!--
+	<include>
+		<uri>models://some_office</uri>
+		<name>home_1</name>
+		<pose>-1.5 15.2 0 0 0 -0.6</pose>
+	</include>
+	<include>
+		<uri>models://Patient_sign_board_1</uri>
+		<name>Patient_qr_sign_board_1</name>
+		<pose>-2.0 14.0 0 0 0 1.0</pose>
+	</include>
+	<include>
+		<uri>models://TrolleyBedPatient</uri>
+		<name>patient_1</name>
+		<pose>-2 14 0 0 0 -0.7</pose>
+	</include>
+	-->
+
+	
+	<!-- Patient 2 -->
+	<!--
+	<include>
+		<uri>models://some_office</uri>
+		<name>home_2</name>
+		<pose>16.310200 -2.95 0 0 0 -3.133190</pose>
+	</include>
+	<include>
+		<uri>models://Patient_sign_board_2</uri>
+		<name>Patient_qr_sign_board_2</name>
+		<pose>15.946900 -1.6 0 0 0 1.5</pose>
+	</include>
+	<include>
+		<uri>models://TrolleyBedPatient</uri>
+		<name>patient_2</name>
+		<pose>15.810500 -1.799490 0 0 0 0</pose>
+	</include>
+	-->
+	
+
+	<!-- Patient 3 -->
+	<!--
+	<include>
+		<uri>models://some_office</uri>
+		<name>home_3</name>
+		<pose>1.621580 33.076 0 0 0 0.1</pose>
+	</include>
+	<include>
+		<uri>models://Patient_sign_board_3</uri>
+		<name>Patient_qr_sign_board_3</name>
+		<pose>2.134480 31.7 0 0 0 1.7</pose>
+	</include>
+	<include>
+		<uri>models://TrolleyBedPatient</uri>
+		<name>patient_3</name>
+		<pose>2.164130 31.967300 0 0 0 0.1</pose>
+	</include>
+	-->
+
+
+	<!-- Hospital 1 -->
+	<!--
+	<include>
+		<uri>models://Hospital</uri>
+		<name>hospital_1</name>
+		<pose>6.1 -10.5 0 0 0 1.56</pose>
+	</include>
+	<include>
+		<uri>models://Hospital_sign_board_1</uri>
+		<name>hospital_qr_sign_board_1</name>
+		<pose>4.45 -10.80 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Parking_Lot</uri>
+		<name>Parking_Lot_1</name>
+		<pose>4.19 -10.0 -0.01 0 0 1.55</pose>
+	</include>
+	-->
+
+	
+	<!-- Hospital 2 -->
+	<!--
+	<include>
+		<uri>models://Hospital</uri>
+		<name>hospital_2</name>
+		<pose>-8.10 9.00 0 0 0 -1.6</pose>
+	</include>
+	<include>
+		<uri>models://Hospital_sign_board_2</uri>
+		<name>hospital_qr_sign_board_2</name>
+		<pose>-6.50 9.20 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Parking_Lot</uri>
+		<name>Parking_Lot_2</name>
+		<pose>-6.15 8.40 -0.01 0 0 -1.60</pose>
+	</include>
+	-->
+
+	
+	<!-- Hospital 3 -->
+	<!--
+	<include>
+		<uri>models://Hospital</uri>
+		<name>hospital_3</name>
+		<pose>18.5 13.1 0 0 0 2.54</pose>
+	</include>
+	<include>
+		<uri>models://Hospital_sign_board_3</uri>
+		<name>hospital_qr_sign_board_3</name>
+		<pose>18 11.5 0 0 0 -2.2</pose>
+	</include>
+	<include>
+		<uri>models://Parking_Lot</uri>
+		<name>Parking_Lot_3</name>
+		<pose>17 11.83 -0.01 0 0 2.60</pose>
+	</include>
+	-->
+
+
+	<!-- Hospital 1 Parking Lot Cones -->
+	<!--
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c1</name>
+		<pose>4.186480 -9.986240 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c2</name>
+		<pose>3.778110 -9.986700 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c3</name>
+		<pose>3.443620 -9.969550 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c4</name>
+		<pose>3.450290 -9.691290 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c5</name>
+		<pose>4.198660 -9.383440 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c6</name>
+		<pose>3.793480 -9.392380 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c7</name>
+		<pose>3.454770 -9.380420 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c8</name>
+		<pose>4.204090 -8.786160 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c9</name>
+		<pose>3.815920 -8.783260 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c10</name>
+		<pose>3.466290 -8.782520 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c11</name>
+		<pose>4.210490 -8.192460 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c12</name>
+		<pose>3.846850 -8.191790 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c13</name>
+		<pose>3.477210 -8.191940 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c14</name>
+		<pose>3.469290 -8.432500 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h1_c15</name>
+		<pose>3.454960 -9.047330 0 0 0 0</pose>
+	</include>
+	-->
+
+
+	<!-- Hospital 2 Parking Lot Cones -->
+	<!--
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c1</name>
+		<pose>-6.132400 8.398730 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c2</name>
+		<pose>-5.789270 8.397900 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c3</name>
+		<pose>-5.403790 8.368220 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c4</name>
+		<pose>-5.409350 8.121200 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c5</name>
+		<pose>-6.151480 7.802910 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c6</name>
+		<pose>-5.794740 7.790810 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c7</name>
+		<pose>-5.418770 7.780880 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c8</name>
+		<pose>-5.429310 7.467790 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c9</name>
+		<pose>-6.177740 7.205020 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c10</name>
+		<pose>-5.805410 7.200510 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c11</name>
+		<pose>-5.436440 7.182760 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c12</name>
+		<pose>-5.443090 6.855830 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c13</name>
+		<pose>-6.190830 6.603220 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c14</name>
+		<pose>-5.829780 6.591380 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h2_c15</name>
+		<pose>-5.450730 6.595300 0 0 0 0</pose>
+	</include>
+	-->
+
+
+	<!-- Hospital 3 Parking Lot Cones -->
+	<!--
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c1</name>
+		<pose>16.9847 11.811 0 0 0 0</pose>
+	</include> 
+	
+	
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c2</name>
+		<pose>16.7961 11.493 0 0 0 0</pose>
+	</include>
+	
+
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c3</name>
+		<pose>16.6072 11.1944 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c4</name>
+		<pose>16.3679 11.3348 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c5</name>
+		<pose>16.475 12.132 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c6</name>
+		<pose>16.2729 11.7889 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c7</name>
+		<pose>16.103 11.4935 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c8</name>
+		<pose>15.8441 11.6465 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c9</name>
+		<pose>15.9646 12.4466 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c10</name>
+		<pose>15.7684 12.1143 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c11</name>
+		<pose>15.596 11.8064 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c12</name>
+		<pose>15.3101 11.9711 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c13</name>
+		<pose>15.4548 12.7542 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c14</name>
+		<pose>15.2745 12.4501 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>h3_c15</name>
+		<pose>15.0814 12.1138 0 0 0 0</pose>
+	</include>
+	-->
+
+
+
+	<!-- Obstacles -->
+	<!--
+	<include>
+		<uri>models://barricade</uri>
+		<name>barricade_1</name>
+		<pose>12.79 24.5135 0.149 0 0 -0.3</pose>
+	</include>
+	<include>
+		<uri>models://barricade</uri>
+		<name>barricade_2</name>
+		<pose>-9.7000 9.0135 0.1500 0 0 -0.3000</pose>
+	</include>
+	<include>
+		<uri>models://barricade</uri>
+		<name>barricade_3</name>
+		<pose>11.6900 20.0824 0.1700 0 -0.0332 0.1</pose>
+	</include>
+	
+	
+	<include>
+		<uri>models://oak_tree_mini</uri>
+		<name>tree_1</name>
+		<pose>-6.8615 7.1392 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://oak_tree_mini</uri>
+		<name>tree_2</name>
+		<pose>-2.6900 29.1400 0 0 0 0</pose>
+	</include>
+	
+	
+	<include>
+		<uri>models://Pine_Tree</uri>
+		<name>pine_tree_1</name>
+		<pose>-5.0 26.0 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Pine_Tree</uri>
+		<name>pine_tree_2</name>
+		<pose>-0.606918 31.577900 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Pine_Tree</uri>
+		<name>pine_tree_3</name>
+		<pose>-1.491600 31.244100 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Pine_Tree</uri>
+		<name>pine_tree_4</name>
+		<pose>-2.13 30.92 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Pine_Tree</uri>
+		<name>pine_tree_5</name>
+		<pose>-5.45 25.401500 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Pine_Tree</uri>
+		<name>pine_tree_6</name>
+		<pose>-5.679800 24.903500 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Pine_Tree</uri>
+		<name>pine_tree_7</name>
+		<pose>-5.976170 24.422800 0 0 0 0</pose>
+	</include>
+	
+	
+	<include>
+		<uri>models://hatchback_red</uri>
+		<name>car_5</name>
+		<pose>2.7786 3.5827 0 0 0 0</pose>
+	</include>
+	
+	
+	<include>
+		<uri>models://car_blue</uri>
+		<name>car_6</name>
+		<pose>-8.5 19.5 0 0 0 -1.6500</pose>
+	</include>
+	
+	
+	<include>
+		<uri>models://apartment</uri>
+		<name>building_1</name>
+		<pose>10.0000 0.5800 0 0 0 -1.6000</pose>
+	</include>
+	
+	
+	<include>
+		<uri>models://postbox</uri>
+		<name>post_box_1</name>
+		<pose>-1.4393 -16.3285 0 -0.0900 0.2000 0</pose>
+	</include>
+	
+	
+	<include>
+		<uri>models://lamp_post</uri>
+		<name>lamp_1</name>
+		<pose>-9.8645 -1.7645 0 0 0 1.0000</pose>
+	</include>
+	<include>
+		<uri>models://lamp_post</uri>
+		<name>lamp_2</name>
+		<pose>-7.2 -8.0 0 0 0 -0.9</pose>
+	</include>
+	<include>
+		<uri>models://lamp_post</uri>
+		<name>lamp_2_2</name>
+		<pose>-7.0 -8.433850 0 0 0 -1.0000</pose>
+	</include>
+	<include>
+		<uri>models://lamp_post</uri>
+		<name>lamp_3</name>
+		<pose>-1.3122 -2.5313 0 0 0 -3.0000</pose>
+	</include>
+	-->
+
+	
+	<!-- Below objects are the ones not on the track. You can set the coordinates to place them on track -->
+	<!--
+	<include>
+	  <uri>models://barricade</uri>
+	  <name>barricade_4</name>
+	  <pose>-14.4405 31 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://barricade</uri>
+		<name>barricade_5</name>
+		<pose>-14.4405 32 0 0 0 0</pose>
+	</include>
+
+	<include>
+		<uri>models://oak_tree_mini</uri>
+		<name>tree_3</name>
+		<pose>-13.4405 30.5 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://oak_tree_mini</uri>
+		<name>tree_4</name>
+		<pose>-15.4405 30.5 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://gas_station</uri>
+		<name>gas_station</name>
+		<pose>-19.4405 30.5 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>cone_1</name>
+		<pose>-14.4405 29.5 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://Construction_Cone_mini</uri>
+		<name>cone_2</name>
+		<pose>-14.8805 29.5 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://postbox</uri>
+		<name>post_box_2</name>
+		<pose>-15.0 30.0 0 0 0 0</pose>
+	</include>
+	<include>
+		<uri>models://fast_food</uri>
+		<name>building_2</name>
+		<pose>-15.0 33.0 0 0 0 0</pose>
+	</include>
+	-->
+
+	</world>
+</sdf>
