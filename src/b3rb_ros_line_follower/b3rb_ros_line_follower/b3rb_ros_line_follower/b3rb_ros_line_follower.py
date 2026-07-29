@@ -91,6 +91,33 @@ LANE_WIDTH_LEARN_RATE = 0.10 # EMA rate for the learned width
 # clearance from a known black line.
 SINGLE_EDGE_MARGIN = 1.18    # multiplier on the half-width offset
 
+# At a fork the detector still reports two boundaries, but they are the OUTER
+# edges of two different branches rather than the two sides of one lane - so
+# taking their midpoint aims the buggy squarely at the divider between them.
+# A fork is recognisable as a lane that has suddenly become far too wide.
+# Having detected one we pick a branch and treat its outer edge as a single
+# boundary, which the existing single-edge path already handles.
+# Junction handling.
+#
+# Classifying "island" vs "fork" from the ratio of observed to learned lane
+# width proved unreliable on this track: the road genuinely varies in width, so
+# a normal 160 px lane against a 300 px learned average reads as 0.54 and gets
+# mistaken for a divider. The classification also flickered frame to frame,
+# which is what made the steering oscillate at the approach.
+#
+# So we stop trying to name the geometry. Any implausible width simply means
+# "the two boundaries I can see are not the two sides of my lane", and the
+# robust response is the same in every such case: follow ONE boundary at a
+# fixed offset until the geometry makes sense again. Edge-following is
+# deterministic through forks, islands and width changes alike, and the fixed
+# offset removes the dependence on a learned width that may itself be wrong.
+LANE_RATIO_MIN = 0.65        # below this the pair is not one lane
+LANE_RATIO_MAX = 1.35        # above this the pair is not one lane
+JUNCTION_TURN = 0.42         # committed steering while crossing a junction
+JUNCTION_HOLD_SEC = 2.0      # hold the commitment long enough to clear the split
+DEFAULT_BRANCH = 'RIGHT'     # branch taken when no sign instruction applies
+DEBUG_LANE = True            # log observed vs learned lane width at 1 Hz
+
 # --- obstacle avoidance ---
 OBSTACLE_STOP_DIST = 0.55    # metres, emergency hard-avoid
 OBSTACLE_SLOW_DIST = 1.10    # metres, begin proportional evasive steer
@@ -229,12 +256,34 @@ GOAL_REACHED_DIST = 3.0      # metres; close enough to hand over to the QR gate
 BEARING_DEADZONE_DEG = 20    # ignore small bearing errors, avoids twitching
 
 # --- mission ---
-WAIT_REPLY_TIMEOUT_SEC = 20.0   # give up waiting for the server and resume
+# Deliveries are confirmed by the SERVER, not by us transmitting. The rules are
+# explicit: "If the buggy is in the Hospital wall boundaries and the Hospital is
+# correct, you will receive another Patient", and "Server Sends another Patient
+# only inside Hospital Zone. If not inside Hospital zone, you will receive
+# INVALID". So a transmission proves nothing - counting on TX could reach 3/3
+# with one real delivery and then skip to parking.
+#
+# Leaving a Patient Zone before the assignment arrives is itself a penalty
+# ("Walking out of Patient Zone without receiving hospital is a penalty"), and
+# NXP confirmed the server replies instantly. A timeout firing therefore means
+# something is already badly wrong, so we wait a long time before accepting the
+# penalty of moving on.
+WAIT_ASSIGNMENT_TIMEOUT = 45.0  # patient zone: leaving early is a scored penalty
+WAIT_NEXT_TIMEOUT = 25.0        # hospital zone: no equivalent penalty stated
+FINAL_CONFIRM_SEC = 10.0        # after the LAST delivery there is no "next
+                                # patient" to confirm it, so absence of INVALID
+                                # for this long is treated as success
 FIRST_PATIENT = "PATIENT_1"  # NXP: "the first Patient will always be by default
                              # patient A ... navigate to patient A as soon as
                              # your buggy is spawned"
 TOTAL_PATIENTS = 3
-PARK_ANNOUNCE_SEC = 45.0     # send PARKED well inside the 60s window
+# The timer stops at the third delivery, so parking costs no time percentile -
+# it is free upside. The rules also allow repeated server interaction and note
+# that the buggy need not be stopped, only inside, when PARKED is sent. So we
+# announce repeatedly while traversing the exit to maximise the chance one lands
+# inside the zone.
+PARK_ANNOUNCE_EVERY = 3.0
+PARK_WINDOW_SEC = 55.0       # server waits 1 minute; stay inside that
 
 # --- payload normalisation ---
 CODE_TO_NAME = {
@@ -385,6 +434,9 @@ class LineFollower(Node):
         self.lane_visible = False
         self.lane_confidence = 0        # 0 = blind, 1 = one edge, 2 = both
         self.lane_width_px = None       # learned online from two-edge frames
+        self.fork_logged = False
+        self.junction_until = 0.0
+        self._last_lane_log = 0.0
         self.prev_deviation = 0.0
         self.prev_lane_time = None
         self.lane_lost_since = None
@@ -441,9 +493,12 @@ class LineFollower(Node):
         self.state = State.INIT
         self.target_building = None     # e.g. "PATIENT_1"
         self.assigned_hospital = None
-        self.delivered = 0
+        self.pending_delivery = None    # hospital transmitted, awaiting confirm
+        self.delivered = 0              # CONFIRMED deliveries only
         self.state_entered = time.time()
         self.parked_sent = False
+        self.park_started = None
+        self.last_park_announce = 0.0
 
         # 20 Hz control loop
         self.create_timer(0.05, self.control_loop)
@@ -460,6 +515,10 @@ class LineFollower(Node):
                 f"[STATE] {self.state.name} -> {new_state.name}")
             self.state = new_state
             self.state_entered = time.time()
+
+    def now_sec(self):
+        """Single source of truth for time, so the clock can be swapped later."""
+        return time.time()
 
     def time_in_state(self):
         return time.time() - self.state_entered
@@ -675,13 +734,62 @@ class LineFollower(Node):
         if count >= 2:
             x1 = (message.vector_1[0].x + message.vector_1[1].x) / 2.0
             x2 = (message.vector_2[0].x + message.vector_2[1].x) / 2.0
-            centre = (x1 + x2) / 2.0
-
-            # Learn the lane width, ignoring implausible observations.
             observed = abs(x2 - x1)
+            left_x, right_x = min(x1, x2), max(x1, x2)
+
+            ratio = (observed / self.lane_width_px) if self.lane_width_px else 1.0
+            implausible = not (LANE_RATIO_MIN <= ratio <= LANE_RATIO_MAX)
+
+            if implausible:
+                self.junction_until = now + JUNCTION_HOLD_SEC
+            in_junction = now < self.junction_until
+
+            if DEBUG_LANE and now - self._last_lane_log > 1.0:
+                self._last_lane_log = now
+                self.get_logger().info(
+                    f"[LANE] observed={observed:.0f} learned="
+                    f"{(self.lane_width_px or 0):.0f} ratio={ratio:.2f} "
+                    f"{'JUNCTION' if in_junction else 'centre'}")
+
+            if in_junction:
+                # Deliberately stop using the vision centre here.
+                #
+                # Two attempts at inferring the geometry from these vectors
+                # both failed. The reason is that the same measurement is
+                # ambiguous: two boundaries 144 px apart astride the image
+                # centre are either a narrow lane (drive BETWEEN them) or the
+                # sides of a divider island (drive OUTSIDE them), and nothing
+                # in the EdgeVectors message distinguishes those. Aiming at the
+                # midpoint drives into the island; aiming inward from one edge
+                # also drives into the island.
+                #
+                # So at a junction we ignore the ambiguous measurement entirely
+                # and commit to a fixed, gentle turn toward the chosen branch,
+                # holding it long enough to clear the split. It is not clever,
+                # but it is deterministic and it always keeps moving - which is
+                # what a junction needs and what sitting confused does not do.
+                want = self.pending_turn if self.pending_turn in (
+                    'LEFT', 'RIGHT') else DEFAULT_BRANCH
+                self.lane_visible = True
+                self.lane_lost_since = None
+                self.lane_deviation = 0.0
+                self.lane_turn = (JUNCTION_TURN if want == 'LEFT'
+                                  else -JUNCTION_TURN)
+
+                if not self.fork_logged:
+                    self.fork_logged = True
+                    self.get_logger().info(
+                        f"[JUNCTION] ambiguous width {observed:.0f}px vs lane "
+                        f"{(self.lane_width_px or 0):.0f}px (ratio {ratio:.2f}) "
+                        f"- committing {want}")
+                return
+
+            self.fork_logged = False
+            centre = (x1 + x2) / 2.0
             if 0.25 * width < observed < 1.5 * width:
                 r = LANE_WIDTH_LEARN_RATE
-                self.lane_width_px = (1.0 - r) * self.lane_width_px + r * observed
+                self.lane_width_px = (
+                    1.0 - r) * self.lane_width_px + r * observed
 
         elif count == 1:
             vx = (message.vector_1[0].x + message.vector_1[1].x) / 2.0
@@ -1003,17 +1111,56 @@ class LineFollower(Node):
             upper = CODE_TO_NAME[upper]
 
         if upper == "INVALID":
-            # We transmitted from outside a valid zone. Staying parked here
-            # waiting for an assignment that will never come would end the run,
-            # so back out and approach again.
-            self.get_logger().error(
-                "[SERVER] INVALID - transmitted outside a valid zone, resuming")
+            # INVALID means two different things depending on context. During
+            # parking the guide states it means "the buggy is not parked
+            # correctly" - NOT that a delivery was rejected. Without this check
+            # a bad parking position would send us back to re-approach a
+            # hospital we had already delivered to.
+            if self.state in (State.SEEK_EXIT, State.PARKING, State.DONE):
+                self.get_logger().warn(
+                    "[SERVER] INVALID - not parked correctly, continuing "
+                    "to look for the parking area")
+                return
+
+            # We transmitted from outside a valid zone. The penalty is already
+            # taken, but the points are still available and the rules allow
+            # repeated interaction ("Participants may interact with the
+            # Municipality Server multiple times"). So re-approach and retry
+            # rather than abandoning the building.
+            self.approach_since = None
+            self.approach_target = None
+
+            if self.pending_delivery:
+                hospital = self.pending_delivery
+                self.pending_delivery = None
+                self.assigned_hospital = hospital
+                self.target_building = hospital
+                self.get_logger().error(
+                    f"[SERVER] INVALID - delivery of {hospital} rejected "
+                    f"(outside zone), re-approaching to retry")
+                self.set_state(State.SEEK_HOSPITAL)
+                return
+
+            # Otherwise a patient registration was rejected. Allow it to be
+            # targeted again by forgetting that we ever registered it.
+            if self.target_building and self.target_building.startswith("PATIENT"):
+                self.registered.discard(self.target_building)
+                self.get_logger().error(
+                    f"[SERVER] INVALID - registration of {self.target_building} "
+                    f"rejected (outside zone), re-approaching to retry")
+                self.set_state(State.SEEK_PATIENT)
+                return
+
+            self.get_logger().error("[SERVER] INVALID - resuming search")
             self.set_state(State.SEEK_HOSPITAL if self.assigned_hospital
                            else State.SEEK_PATIENT)
             return
 
         if upper == "OK":
-            self.get_logger().info("[SERVER] parking confirmed")
+            # Guide: "Wait for response from server as msg = 'OK' to confirm
+            # that your parking is correct." That ends the run.
+            self.get_logger().info("[SERVER] parking confirmed OK - run complete")
+            self.parked_sent = True
             self.set_state(State.DONE)
             return
 
@@ -1027,9 +1174,23 @@ class LineFollower(Node):
             return
 
         if upper.startswith("PATIENT"):
+            # Receiving a patient is the server's confirmation that the
+            # previous delivery landed inside the hospital zone. This is the
+            # only positive acknowledgement the protocol gives us, so it is
+            # where the delivery count is incremented.
+            if self.pending_delivery:
+                self.delivered += 1
+                self.get_logger().info(
+                    f"[MISSION] {self.pending_delivery} CONFIRMED - "
+                    f"delivered {self.delivered}/{TOTAL_PATIENTS}")
+                self.pending_delivery = None
+                self.assigned_hospital = None
+
             self.target_building = upper
             self.get_logger().info(f"[MISSION] next patient -> {upper}")
             self.pending_turn = None
+            self.approach_since = None
+            self.approach_target = None
             self.latch_turn_for_target()
             self.set_state(State.SEEK_PATIENT)
             return
@@ -1073,29 +1234,73 @@ class LineFollower(Node):
             self.drive_stop()
             self.handle_at_building()
 
-        elif self.state in (State.WAIT_ASSIGNMENT, State.WAIT_NEXT):
-            # Hold position inside the zone until the server replies - leaving
-            # early is a scored penalty. But never wait forever: a dropped
-            # message would otherwise park the buggy for the rest of the run,
-            # which costs far more than the risk of moving on.
+        elif self.state == State.WAIT_ASSIGNMENT:
+            # Hold position inside the Patient Zone. Leaving before the
+            # assignment arrives is explicitly a penalty, and NXP confirmed the
+            # server replies instantly - so we are very patient here, and treat
+            # moving on as a last resort rather than a routine timeout.
             self.drive_stop()
-            if self.time_in_state() > WAIT_REPLY_TIMEOUT_SEC:
+            if self.time_in_state() > WAIT_ASSIGNMENT_TIMEOUT:
+                self.get_logger().error(
+                    f"[MISSION] no assignment in {WAIT_ASSIGNMENT_TIMEOUT:.0f}s "
+                    f"- leaving zone (accepting penalty) to keep the run alive")
+                self.set_state(State.SEEK_PATIENT)
+
+        elif self.state == State.WAIT_NEXT:
+            self.drive_stop()
+            waited = self.time_in_state()
+
+            # The third delivery has no "next patient" to confirm it. Absence
+            # of an INVALID for a reasonable window is the only positive signal
+            # available, so we take it and move to the free parking bonus.
+            if (self.pending_delivery
+                    and self.delivered >= TOTAL_PATIENTS - 1
+                    and waited > FINAL_CONFIRM_SEC):
+                self.delivered += 1
+                self.get_logger().info(
+                    f"[MISSION] {self.pending_delivery} assumed confirmed "
+                    f"(no INVALID in {FINAL_CONFIRM_SEC:.0f}s) - "
+                    f"delivered {self.delivered}/{TOTAL_PATIENTS}")
+                self.pending_delivery = None
+                self.assigned_hospital = None
+                self.target_building = None
+                self.set_state(State.SEEK_EXIT)
+
+            elif waited > WAIT_NEXT_TIMEOUT:
                 self.get_logger().warn(
-                    f"[MISSION] no server reply in {WAIT_REPLY_TIMEOUT_SEC:.0f}s "
+                    f"[MISSION] no reply in {WAIT_NEXT_TIMEOUT:.0f}s "
                     f"- resuming search")
+                self.pending_delivery = None
                 self.set_state(State.SEEK_HOSPITAL if self.assigned_hospital
                                else State.SEEK_PATIENT)
 
         elif self.state == State.SEEK_EXIT:
+            # The mission timer stopped at the third delivery, so nothing here
+            # costs time percentile - it is pure bonus. The exit is stated to be
+            # in front of the final hospital delivery zone, so we simply keep
+            # driving the road away from it.
+            #
+            # The rules note the buggy need not be stopped, only inside, when
+            # PARKED is sent, and that repeated server interaction is allowed.
+            # We therefore announce periodically while traversing the exit so
+            # that at least one announcement lands inside the parking zone,
+            # rather than gambling everything on a single guess.
             self.drive_seeking()
-            if self.time_in_state() > 5.0 and self.at_building_wall() is False:
-                self.set_state(State.PARKING)
+            if self.park_started is None:
+                self.park_started = self.now_sec()
+                self.get_logger().info(
+                    "[MISSION] all deliveries done - heading for parking")
+
+            elapsed = self.now_sec() - self.park_started
+            if elapsed > PARK_WINDOW_SEC:
+                self.get_logger().info("[MISSION] parking window closed")
+                self.set_state(State.DONE)
+            elif self.now_sec() - self.last_park_announce > PARK_ANNOUNCE_EVERY:
+                self.last_park_announce = self.now_sec()
+                self.server.send("PARKED")
 
         elif self.state == State.PARKING:
             self.drive_stop()
-            if not self.parked_sent:
-                self.server.send("PARKED")
-                self.parked_sent = True
 
         elif self.state == State.DONE:
             self.drive_stop()
@@ -1289,20 +1494,13 @@ class LineFollower(Node):
                 self.set_state(State.SEEK_HOSPITAL)
                 return
             self.server.send(NAME_TO_CODE.get(building, building))
-            self.delivered += 1
+            # NOT counted yet. The server confirms a delivery by sending the
+            # next patient, or rejects it with INVALID. Counting here would let
+            # three rejected transmissions look like a completed mission.
+            self.pending_delivery = building
             self.get_logger().info(
-                f"[MISSION] delivered {self.delivered}/{TOTAL_PATIENTS}")
-            self.assigned_hospital = None
-            # Clearing the target matters: leaving it set to the hospital we
-            # just delivered to meant that if the next assignment was ever
-            # missed, the buggy resumed seeking that same hospital and then
-            # refused it forever, because assigned_hospital was already None.
-            self.target_building = None
-            self.approach_since = None
-            if self.delivered >= TOTAL_PATIENTS:
-                self.set_state(State.SEEK_EXIT)
-            else:
-                self.set_state(State.WAIT_NEXT)
+                f"[MISSION] delivery of {building} sent - awaiting confirmation")
+            self.set_state(State.WAIT_NEXT)
 
     # =========================================================================
     # ACTUATION
