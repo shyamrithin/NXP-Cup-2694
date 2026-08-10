@@ -19,7 +19,6 @@ from sensor_msgs.msg import CompressedImage
 import numpy as np
 import cv2
 import math
-from std_msgs.msg import Float32
 from synapse_msgs.msg import EdgeVectors
 
 QOS_PROFILE_DEFAULT = 10
@@ -31,25 +30,8 @@ GREEN_COLOR = (0, 255, 0)
 
 # HINT: You can adjust what percentage of the image from the bottom is analyzed.
 # Lower portions are closer to the buggy, while upper portions see further ahead.
-VECTOR_IMAGE_HEIGHT_PERCENTAGE = 0.225
+VECTOR_IMAGE_HEIGHT_PERCENTAGE = 0.40
 VECTOR_MAGNITUDE_MINIMUM = 2.25
-
-# --- road-presence signal (added) --------------------------------------------
-# The EdgeVectors message says WHERE two boundaries are, but not what lies
-# between them - and that is exactly the information needed at a junction.
-# Two boundaries 240 px apart are either the two sides of our lane (drive
-# between them) or the two sides of a divider (drive around it), and the pixel
-# coordinates are identical in both cases.
-#
-# This node has the image, so it can simply look. The drivable road is bright
-# white; the off-track apron and dividers are noticeably darker grey. We
-# therefore sample the strip between the two chosen boundaries and publish the
-# fraction of it that is road-bright, on /lane_road_fraction.
-#
-#   high  -> the space between the boundaries is road  -> ordinary lane
-#   low   -> something non-drivable sits between them  -> junction / divider
-ROAD_BRIGHTNESS_MIN = 185    # grey level above which a pixel counts as road
-ROAD_SAMPLE_ROWS = 6         # rows sampled across the analysed band
 
 class EdgeVectorsPublisher(Node):
     """
@@ -70,12 +52,6 @@ class EdgeVectorsPublisher(Node):
         self.publisher_edge_vectors = self.create_publisher(
             EdgeVectors,
             '/edge_vectors',
-            QOS_PROFILE_DEFAULT)
-
-        # Publisher for the road-presence signal between the two boundaries.
-        self.publisher_road_fraction = self.create_publisher(
-            Float32,
-            '/lane_road_fraction',
             QOS_PROFILE_DEFAULT)
 
         # Publisher for thresh image (for debugging thresholding/segmentation).
@@ -213,37 +189,6 @@ class EdgeVectorsPublisher(Node):
                 best_vector[0][1] += self.upper_image_height
                 best_vector[1][1] += self.upper_image_height
                 final_vectors.append(best_vector[:2])
-
-        # --- road-presence between the two boundaries -----------------------
-        # Only meaningful when two boundaries were found; otherwise report 1.0
-        # so the controller treats it as "nothing unusual".
-        road_fraction = 1.0
-        if len(final_vectors) == 2:
-            gray_cropped = gray[self.image_height - self.lower_image_height:]
-            band_h = gray_cropped.shape[0]
-
-            xs = []
-            for v in final_vectors:
-                # coordinates were shifted back to full-image space above, so
-                # only the x values are used here
-                xs.append((v[0][0] + v[1][0]) / 2.0)
-            x_lo, x_hi = int(min(xs)), int(max(xs))
-            x_lo = max(0, min(self.image_width - 1, x_lo))
-            x_hi = max(0, min(self.image_width - 1, x_hi))
-
-            if x_hi - x_lo > 4:
-                # Sample a few rows spread through the analysed band rather
-                # than a single line, so one noisy row cannot flip the verdict.
-                rows = np.linspace(int(band_h * 0.15), int(band_h * 0.85),
-                                   ROAD_SAMPLE_ROWS).astype(int)
-                strip = gray_cropped[rows, x_lo + 2:x_hi - 1]
-                if strip.size > 0:
-                    road_fraction = float(
-                        np.count_nonzero(strip > ROAD_BRIGHTNESS_MIN) / strip.size)
-
-        msg = Float32()
-        msg.data = road_fraction
-        self.publisher_road_fraction.publish(msg)
 
         # Publish visual debugging images (viewable in tools like Foxglove)
         self.publish_debug_image(self.publisher_thresh_image, thresh_cropped)
