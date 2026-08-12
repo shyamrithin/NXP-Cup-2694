@@ -232,6 +232,8 @@ APPROACH_MAX_SEC = 20.0      # hard cap; must exceed ADVANCE_M / SPEED_APPROACH
 APPROACH_STALL_SEC = 1.5     # secondary trigger: closing has stopped improving
 APPROACH_PROGRESS_M = 0.05   # closing less than this does not count as progress
 APPROACH_ARC_DEG = 75        # arc searched for the building we are pulling up to
+RECEDING_MARGIN = 0.15        # meters: near increasing this much past its best = passed the building
+MIN_ARRIVAL_ADVANCE_M = 0.4   # sanity floor so this can't trigger on startup noise
 # Once we commit to a building we do NOT abandon it the moment the code leaves
 # frame. At cruise the buggy gets only a short burst of decodes as it comes
 # level with a board; if losing freshness cancelled the approach it would
@@ -526,7 +528,7 @@ class LineFollower(Node):
         self.prev_lane_time = None
         self.lane_lost_since = None
         self.lane_lost_yaw = None
-        self.front_dist = float('inf')
+        self.front_dist_raw = float('inf')
         self.left_clear = float('inf')
         self.right_clear = float('inf')
         self.nearest_dist = float('inf')
@@ -713,13 +715,33 @@ class LineFollower(Node):
             return False
         if time.time() - self.last_recovery_time < RECOVERY_COOLDOWN_SEC:
             return False
+
         # During a committed approach we are DELIBERATELY crawling right next
-        # to a building. Slow, close and deliberate is not stuck.
+        # to a building - and approaching at an angle puts a wall inside
+        # STUCK_CONTACT_DIST of the front arc while we are driving perfectly
+        # correctly. The contact detector cannot tell that apart from being
+        # wedged, so it reversed out of good approaches while still inside the
+        # lane. Slow, close and deliberate is not stuck.
         if self.approach_since is not None:
-            self.last_progress_x = self.pose_x
-            self.last_progress_y = self.pose_y
-            self.last_progress_time = time.time()
+            self.contact_since = None
             return False
+
+        # Contact detector: odometry lies when wheels spin against an obstacle.
+        # Contact detector: odometry lies when wheels spin against an obstacle.
+        # This checks front_dist directly, only at genuine contact range,
+        # skipped during approach (handled above) to avoid false positives
+        # when pulling up legitimately close to a building.
+        if self.target_speed >= STUCK_SPEED_MIN:
+            if self.front_dist < STUCK_CONTACT_DIST:
+                if self.contact_since is None:
+                    self.contact_since = time.time()
+                elif time.time() - self.contact_since > STUCK_CONTACT_SEC:
+                    self.get_logger().warn(
+                        f"[STUCK] contact at {self.front_dist:.2f}m for "
+                        f"{STUCK_CONTACT_SEC:.0f}s - triggering recovery")
+                    return True
+            else:
+                self.contact_since = None
 
         # The LiDAR contact detector has been REMOVED. It declared "stuck"
         # whenever anything sat inside the corridor closer than 0.45 m for two
@@ -845,7 +867,7 @@ class LineFollower(Node):
             # --- V-fork: the two boundaries are two different branches ----
             if ratio > FORK_WIDTH_RATIO:
                 self.fork_until = now + FORK_HOLD_SEC
-            in_fork = now < self.fork_until
+            in_fork = now < self.fork_until and self.front_dist >= OBSTACLE_SLOW_DIST
 
             if in_fork:
                 want = self.pending_turn if self.pending_turn in (
@@ -1038,7 +1060,12 @@ class LineFollower(Node):
             return best_r, bearing
 
         # Bearings in the sensor frame: 0 rad = forward, +90 = left, -90 = right.
-        self.front_dist = sector_min(0, FRONT_ARC_DEG)
+        raw_front = sector_min(0, FRONT_ARC_DEG)
+        if raw_front <= self.front_dist_raw:
+            self.front_dist = raw_front   # closing: react instantly, never delay safety
+        else:
+            self.front_dist = 0.5 * self.front_dist + 0.5 * raw_front  # opening: ease out
+        self.front_dist_raw = raw_front
         self.left_clear = sector_min(90, SIDE_ARC_DEG)
         self.right_clear = sector_min(-90, SIDE_ARC_DEG)
         self.obstacle_block = self.front_dist < OBSTACLE_STOP_DIST
@@ -1424,7 +1451,10 @@ class LineFollower(Node):
             self.target_building = upper
             self.get_logger().info(f"[MISSION] assigned -> {upper}")
             self.pending_turn = None
-            self.latch_turn_for_target()    # we may already hold a useful sign
+            self.approach_since = None
+            self.approach_target = None
+            self.arrival_building = None
+            self.latch_turn_for_target()
             self.set_state(State.SEEK_HOSPITAL)
             return
 
@@ -1601,9 +1631,17 @@ class LineFollower(Node):
         # with more room but KEEP part of the lane term so we do not rotate
         # blindly across a boundary.
         if self.front_dist < OBSTACLE_STOP_DIST:
-            escape = 0.7 if self.dodge_left() else -0.7
+            dodge_choice = self.dodge_left()
+            side_now_clear = self.left_clear if dodge_choice else self.right_clear
+            if side_now_clear < 0.60:
+                self.get_logger().warn(
+                    f"[AVOID] chosen side collapsed to {side_now_clear:.2f}m "
+                    f"mid-dodge - reversing out")
+                self.enter_recovery()
+                return
+            escape = 0.7 if dodge_choice else -0.7
             turn = max(min(0.5 * self.lane_turn + escape, TURN_MAX), -TURN_MAX)
-            self.set_control(AVOID_BRAKE_SPEED, turn)  # crawl, do not stop
+            self.set_control(AVOID_BRAKE_SPEED, turn)
             return
 
         # Proportional avoidance: ramps from 0 at OBSTACLE_SLOW_DIST to full
@@ -1670,8 +1708,10 @@ class LineFollower(Node):
             # up. Past halfway, the dropout is the geometry working as
             # expected (the board has gone abeam, out of the camera), so only
             # the hard time cap can abort; the rest is odometry.
+            still_progressing = (time.time() - self.approach_best_time) < APPROACH_STALL_SEC
             early_loss = (since_qr > APPROACH_QR_GRACE_SEC
-                          and advanced < 0.5 * APPROACH_ADVANCE_M)
+                          and advanced < 0.5 * APPROACH_ADVANCE_M
+                          and not still_progressing)
             if early_loss or held > APPROACH_MAX_SEC:
                 self.get_logger().warn(
                     f"[APPROACH] abandoning {committed} "
@@ -1732,9 +1772,12 @@ class LineFollower(Node):
                 # The stall trigger stays as a genuine "we are blocked and
                 # will not get further" backstop, and only past halfway so an
                 # early stall cannot stop us short of the zone.
+                receding = (self.nearest_dist > self.approach_best + RECEDING_MARGIN
+                            and advanced > MIN_ARRIVAL_ADVANCE_M)
                 arrived = (advanced >= APPROACH_ADVANCE_M
                            or (stalled > APPROACH_STALL_SEC
-                               and advanced > 0.5 * APPROACH_ADVANCE_M))
+                               and advanced > 0.5 * APPROACH_ADVANCE_M)
+                           or receding)
 
                 if arrived:
                     self.get_logger().info(
