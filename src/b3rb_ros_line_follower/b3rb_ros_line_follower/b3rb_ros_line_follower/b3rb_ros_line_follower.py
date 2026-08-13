@@ -42,30 +42,23 @@
 # TUNING
 #   All tunables are grouped in the CONFIG block below.
 # =============================================================================
-
 import math
 import re
 import time
 from enum import Enum
-
 import rclpy
 from rclpy.node import Node
-
 from sensor_msgs.msg import Joy, LaserScan
 from nav_msgs.msg import Odometry
 from std_msgs.msg import String
 from synapse_msgs.msg import EdgeVectors, ServerCommunication
-
 # =============================================================================
 # CONFIG
 # =============================================================================
-
 QOS = 10
-
 # --- control bounds (fixed by the platform) ---
 SPEED_MAX = 1.0
 TURN_MAX = 1.0
-
 # --- speed schedule ---
 SPEED_CRUISE = 0.65          # straight-line cruise (time is percentile-scored).
                              # Restored to the video-era value: the bend
@@ -75,7 +68,6 @@ SPEED_CORNER = 0.35          # when steering hard
 SPEED_APPROACH = 0.30        # closing on a building to scan
 SPEED_STOP = 0.0
 TURN_SLOWDOWN_GAIN = 0.6     # how much |turn| bleeds speed
-
 # --- lane following (PD + smoothing) ---
 LANE_KP = 0.85               # proportional gain on normalised deviation
 LANE_KD = 0.30               # derivative gain - damps the oscillation
@@ -83,7 +75,6 @@ TURN_SMOOTHING = 0.55        # EMA weight on previous turn (0 = none, 0.9 = heav
 LANE_LOST_DECAY = 0.97       # momentum memory: decay last turn while blind
 LANE_LOST_MAX_SEC = 3.0     # after this long with no lane, stop guessing
 YAW_HOLD_KP = 0.9            # P gain holding the last known heading when blind
-
 # Lane width is LEARNED whenever both boundaries are visible, then reused when
 # only one is visible. This keeps the single-boundary case continuous with the
 # two-boundary case instead of stepping to a fixed push value.
@@ -96,7 +87,6 @@ LANE_WIDTH_LEARN_RATE = 0.10 # EMA rate for the learned width
 # (the far side is open, or we would be seeing two edges) and directly buys
 # clearance from a known black line.
 SINGLE_EDGE_MARGIN = 1.18    # multiplier on the half-width offset
-
 # --- fork handling -------------------------------------------------------
 # At a V-fork the detector still reports two boundaries, but they are the
 # OUTER edges of two different branches - so their midpoint aims the buggy
@@ -119,7 +109,6 @@ FORK_WIDTH_RATIO = 1.45      # observed/learned width above this = fork
 FORK_KP = 0.85               # direct gain on the aim point at a fork
 FORK_SPEED = 0.22            # crawl: a tight branch entry needs time
 FORK_HOLD_SEC = 2.0          # keep fork mode long enough to clear the split
-
 # --- curve inner-line bias -----------------------------------------------
 # On a bend, perspective pulls the far end of the INSIDE boundary toward the
 # image centre, so the midpoint of the two boundaries is not the lane centre -
@@ -139,12 +128,10 @@ FORK_HOLD_SEC = 2.0          # keep fork mode long enough to clear the split
 # inner-line contact remains after the avoidance revert.
 CURVE_LEAN_GAIN = 0.30       # fraction of measured lean applied as outward shift
 CURVE_LEAN_MAX_PX = 80.0     # cap on the shift, pixels
-
 # --- obstacle avoidance ---
 OBSTACLE_STOP_DIST = 0.55    # metres, emergency hard-avoid
 OBSTACLE_SLOW_DIST = 1.10    # metres, begin proportional evasive steer
-OBSTACLE_BIAS_MAX = 0.55     # max steering added by avoidance (was fixed 0.4)
-
+OBSTACLE_BIAS_MAX = 0.75     # max steering added by avoidance (was fixed 0.4)
 # Avoidance must respect the lane. Picking the dodge direction from side-sector
 # clearance alone is wrong: those sectors mostly measure the buildings flanking
 # the road, so "more room that way" frequently means "off the track that way" -
@@ -158,7 +145,6 @@ OBSTACLE_BIAS_MAX = 0.55     # max steering added by avoidance (was fixed 0.4)
 # slowing down shrinks the lateral excursion needed to clear the same object.
 AVOID_LANE_FLOOR = 0.35      # min fraction of the dodge kept when it fights the lane
 AVOID_BRAKE_SPEED = 0.20     # speed while dodging against the lane
-
 # The dodge direction must be LATCHED once chosen. Recomputing it every tick
 # is a feedback loop: dodging left makes the lane controller push back right,
 # which flips the preferred side, which reverses the dodge, which flips it
@@ -167,7 +153,6 @@ AVOID_BRAKE_SPEED = 0.20     # speed while dodging against the lane
 # exactly this. So the side is decided ONCE per encounter and held until the
 # path has been clear for a moment.
 AVOID_HOLD_SEC = 1.5         # hold the chosen dodge side this long past last trigger
-
 # The lane only gets to pick the dodge side if that side has REAL room, not
 # merely more than the trigger distance. Measured failure: obstacle at 1.05 m,
 # left clear 7.23 m, right clear 1.52 m - the lane wanted right, 1.52 cleared
@@ -185,7 +170,6 @@ AVOID_SIDE_RATIO = 2.0       # ...or if the other side is this many times wider,
 FRONT_ARC_DEG = 30           # +/- degrees treated as "front path"
 SIDE_ARC_DEG = 55            # sector used to pick a dodge direction
 ZONE_ARC_DEG = 85            # wide arc used ONLY for "am I beside a building"
-
 # A fixed angular cone is the wrong model for collision checking, and it let
 # the buggy drive into a tree: a thin trunk sitting 25 deg off centre falls
 # outside a +/-22 deg arc entirely, yet the vehicle is easily wide enough to
@@ -200,7 +184,6 @@ ZONE_ARC_DEG = 85            # wide arc used ONLY for "am I beside a building"
 CORRIDOR_HALF_WIDTH = 0.55   # metres; vehicle half-width plus safety margin
 CORRIDOR_ARC_DEG = 80        # only returns within this bearing can be ahead
 DEBUG_LIDAR = False          # print clearances at 2 Hz for tuning
-
 # --- zone estimation (penalty-critical: keep conservative) ---
 # --- zone estimation ---------------------------------------------------------
 # Measured: pyzbar decodes the sign boards reliably out to ~2.35 m (three
@@ -211,7 +194,6 @@ DEBUG_LIDAR = False          # print clearances at 2 Hz for tuning
 # raised to compensate, so the extra distance costs little time.
 ZONE_WALL_DIST = 1.70
 QR_FRESH_SEC = 1.5           # a QR read older than this is not trusted
-
 # --- arrival / approach --------------------------------------------------------
 # Reading a building's QR is itself strong evidence of being in its zone: the
 # code only decodes within ~2.35 m, the board faces the road, and the zone
@@ -254,7 +236,6 @@ APPROACH_QR_GRACE_SEC = 6.0  # abort window - but ONLY in the early approach
 # above the cap and let the approach logic be the real filter.
 ARRIVAL_QR_MAX_AGE = 25.0    # oldest decode still accepted at the transmit gate
 APPROACH_REACQUIRE_SPEED = 0.14   # crawl while waiting for the code to return
-
 # --- corner safety -------------------------------------------------------------
 # Running wide in a bend puts a wheel over the black boundary, which is a scored
 # penalty every time. Deviation is a better predictor of that than steering
@@ -263,7 +244,6 @@ APPROACH_REACQUIRE_SPEED = 0.14   # crawl while waiting for the code to return
 DEVIATION_SLOW = 0.35        # |normalised deviation| that triggers hard slowdown
 SPEED_TURN_HARD = 0.26       # speed used when deviation says we are running wide
 LANE_KP_FAR = 1.35           # proportional gain once deviation exceeds DEVIATION_SLOW
-
 # --- server protocol ---
 ACK_TIMEOUT_SEC = 1.0        # wait before resending an unacked message
 MAX_RETRIES = 10             # PDF: "Buggy needs to resend at least 5 messages
@@ -273,7 +253,6 @@ MAX_RETRIES = 10             # PDF: "Buggy needs to resend at least 5 messages
 SRC_BUGGY = 1
 DEST_SERVER = 2
 ID_BUGGY = 1
-
 # --- stuck detection and recovery ---------------------------------------------
 # The buggy has no reverse in its normal control path: the avoidance layer
 # steers away from obstacles but still commands forward speed. Nosed into a
@@ -283,16 +262,37 @@ STUCK_SPEED_MIN = 0.10       # we believe we are driving if commanded above this
 STUCK_MOVE_MIN = 0.25        # metres of travel expected within the window
 STUCK_WINDOW_SEC = 3.0       # no progress for this long => stuck
 REVERSE_SPEED = -0.35        # backing-out speed
-REVERSE_SEC = 2.0            # how long to reverse
 REVERSE_TURN = 0.55          # steer while reversing, to change approach angle
 RECOVERY_COOLDOWN_SEC = 4.0  # ignore stuck detection just after a recovery
+# Reversing used to be a fixed 2.0 s timer, blind to what was actually behind
+# the buggy. That is wrong in both directions: it can stop backing up while
+# still nosed against the obstacle (not enough clearance to turn away without
+# re-touching it), or it can keep commanding reverse into something that is
+# now close behind. Recovery is therefore driven by LiDAR, not a clock:
+# back up until the FRONT is genuinely clear, stop early if the REAR closes
+# in, and only then turn away. The time bounds below are safety caps, not the
+# primary trigger.
+RECOVERY_FRONT_CLEAR = 1.00     # metres of front clearance that ends reversing
+                                # (well past STUCK_CONTACT_DIST, so we come back
+                                # further than the old fixed-time reverse did)
+RECOVERY_REAR_MIN = 0.30        # metres; stop reversing if something is this
+                                # close behind - do not back into a second wall
+RECOVERY_MIN_REVERSE_SEC = 0.6  # always reverse at least this long, so a noisy
+                                # single reading can't skip backing up entirely
+RECOVERY_MAX_REVERSE_SEC = 5.0  # safety cap if front clearance never resolves
+                                # (was REVERSE_SEC=2.0; this is a ceiling now,
+                                # not the normal stopping condition)
+REAR_ARC_DEG = 30               # +/- degrees behind the buggy, mirrors FRONT_ARC_DEG
 # Reversing alone was not enough: the buggy backed off a tree and then drove
 # straight into it again, because nothing changed its heading. After backing
-# out we therefore hold a steer away from the obstacle for a moment before
-# normal control resumes.
-ESCAPE_SEC = 1.2             # forced turn-away after reversing
+# out we therefore hold a steer away from the obstacle until the LiDAR
+# collision corridor actually reports clear ahead, rather than for a fixed
+# duration that may end too early (heading still fouled) or run on too long
+# (wasted time once the path is already open).
 ESCAPE_TURN = 0.70
 ESCAPE_SPEED = 0.22
+RECOVERY_ESCAPE_MIN_CORRIDOR = 0.90   # corridor clearance that ends the escape turn
+RECOVERY_ESCAPE_MAX_SEC = 4.0         # safety cap if the corridor never clears
 # Odometry here is wheel-derived, so a buggy grinding against a pole with its
 # wheels turning reports forward motion it is not making - which blinds the
 # distance-based detector to the exact case it exists for. This second detector
@@ -301,7 +301,6 @@ ESCAPE_SPEED = 0.22
 # odometry claims.
 STUCK_CONTACT_DIST = 0.45    # corridor range that means we are against something
 STUCK_CONTACT_SEC = 2.0      # held for this long while driving => stuck
-
 # --- sign-based routing --------------------------------------------------------
 # The detector publishes a table like "A:LEFT,B:RIGHT,C:STRAIGHT". We keep the
 # most recent table, look up whichever building we are seeking, and LATCH the
@@ -311,7 +310,6 @@ STUCK_CONTACT_SEC = 2.0      # held for this long while driving => stuck
 SIGN_TABLE_TTL_SEC = 30.0    # a sighting stays useful while we drive to the junction
 TURN_COMMIT_STEER = 0.75     # steering magnitude for a committed turn
 TURN_COOLDOWN_SEC = 8.0      # after turning, ignore the same instruction briefly
-
 # Waiting for the lane to vanish before acting on a sign is too late at many
 # junctions: a T-junction or fork often keeps one boundary in view the whole
 # way through, so the commit never fires and we follow whichever edge happens
@@ -323,7 +321,6 @@ JUNCTION_OPENING_DIST = 4.0  # side clearance that indicates a branching road
 TURN_EARLY_BIAS = 0.40       # steering applied while easing into the turn
 TURN_DONE_YAW_DEG = 55.0     # rotation that counts as "turn completed"
 LANE_EFFORT_FULL = 0.55      # |lane_turn| at which lane keeping fully overrides
-
 # --- navigation --------------------------------------------------------------
 # Greedy bearing-following, NOT path planning. Buildings are logged with the
 # odometry pose at which their QR was read, so we can bias steering toward a
@@ -339,7 +336,6 @@ GOAL_BIAS_MAX = 0.45         # authority at a junction with no sign to follow
 GOAL_BIAS_LANE = 0.0         # authority while the lane is visible: none
 GOAL_REACHED_DIST = 3.0      # metres; close enough to hand over to the QR gate
 BEARING_DEADZONE_DEG = 20    # ignore small bearing errors, avoids twitching
-
 # --- mission ---
 # Leaving a Patient Zone before the assignment arrives is explicitly a penalty,
 # and the PDF shows the server replying within ~1 s - so a timeout firing means
@@ -357,14 +353,12 @@ TOTAL_PATIENTS = 3
 # traversing the exit to maximise the chance one lands inside the zone.
 PARK_ANNOUNCE_EVERY = 3.0
 PARK_WINDOW_SEC = 55.0       # server waits 1 minute; stay inside that
-
 # --- payload normalisation ---
 CODE_TO_NAME = {
     "A": "PATIENT_1", "B": "PATIENT_2", "C": "PATIENT_3",
     "X": "HOSPITAL_1", "Y": "HOSPITAL_2", "Z": "HOSPITAL_3",
 }
 NAME_TO_CODE = {v: k for k, v in CODE_TO_NAME.items()}
-
 # WIRE FORMAT. The official Server_Communication PDF shows every buggy message
 # as a single letter (msg: "A", "X"). A forum answer says to send the string as
 # read by the QR ("{LOC: PATIENT_1}"). These cannot both be right, and guessing
@@ -378,14 +372,10 @@ PAYLOAD_CODE = 'CODE'        # single letter, e.g. "A"  (official PDF)
 PAYLOAD_RAW = 'RAW'          # verbatim QR text, e.g. "{LOC: PATIENT_1}" (forum)
 PAYLOAD_NAME = 'NAME'        # building name only, e.g. "PATIENT_1"
 PAYLOAD_FORMATS = [PAYLOAD_CODE, PAYLOAD_RAW, PAYLOAD_NAME]
-
 BUILDING_RE = re.compile(r"(FAKE_HOSPITAL_\d|HOSPITAL_\d|PATIENT_\d)", re.I)
-
-
 # =============================================================================
 # MISSION STATES
 # =============================================================================
-
 class State(Enum):
     INIT = 0
     SEEK_PATIENT = 1        # driving, looking for the target patient building
@@ -397,46 +387,36 @@ class State(Enum):
     PARKING = 7             # inside parking area
     DONE = 8
     RECOVERY = 9            # wedged: reverse out, then resume previous state
-
-
 # =============================================================================
 # SERVER LINK - owns the uid/ack handshake
 # =============================================================================
-
 class ServerLink:
     """
     Encapsulates the Municipality Server protocol.
-
     Outgoing: assign a rolling uid, publish, and retry until acked.
     Incoming: auto-acknowledge any non-ack message addressed to us, and
               surface its payload to the mission logic.
-
     Missing an ack is fatal (server declares Connection Lost after 5 retries),
     so this class is intentionally the only place that touches uid bookkeeping.
     """
-
     def __init__(self, publisher, logger):
         self._pub = publisher
         self._log = logger
         self._uid = 0
         self._pending = None        # (uid, text, sent_at, retries)
-
     def _next_uid(self):
         self._uid = (self._uid + 1) % 256
         return self._uid
-
     def send(self, text):
         """Send a payload and track it until acknowledged."""
         uid = self._next_uid()
         self._publish(uid, text, ack=0)
         self._pending = [uid, text, time.time(), 0]
         self._log.info(f"[SERVER] TX uid={uid} msg='{text}'")
-
     def send_ack(self, uid):
         """Acknowledge a server message. Must echo the server's uid."""
         self._publish(uid, "", ack=1)
         self._log.info(f"[SERVER] ACK uid={uid}")
-
     def _publish(self, uid, text, ack):
         m = ServerCommunication()
         m.src = SRC_BUGGY
@@ -445,7 +425,6 @@ class ServerLink:
         m.ack = int(ack)
         m.msg = str(text)
         self._pub.publish(m)
-
     def handle(self, msg):
         """
         Process an incoming message.
@@ -453,19 +432,16 @@ class ServerLink:
         """
         if msg.dest != ID_BUGGY:
             return None                     # not addressed to us
-
         if msg.ack == 1:
             if self._pending and msg.uid == self._pending[0]:
                 self._log.info(f"[SERVER] our uid={msg.uid} acknowledged")
                 self._pending = None
             return None
-
         # A real instruction from the server - acknowledge immediately.
         self.send_ack(msg.uid)
         payload = (msg.msg or "").strip()
         self._log.info(f"[SERVER] RX uid={msg.uid} msg='{payload}'")
         return payload if payload else None
-
     def tick(self):
         """Call periodically: retransmit anything left unacknowledged."""
         if not self._pending:
@@ -480,17 +456,12 @@ class ServerLink:
         self._publish(uid, text, ack=0)
         self._pending = [uid, text, time.time(), retries + 1]
         self._log.warn(f"[SERVER] retry {retries + 1} uid={uid}")
-
-
 # =============================================================================
 # MAIN NODE
 # =============================================================================
-
 class LineFollower(Node):
-
     def __init__(self):
         super().__init__('line_follower')
-
         # ---------------- subscriptions ----------------
         self.create_subscription(EdgeVectors, '/edge_vectors',
                                  self.edge_vectors_callback, QOS)
@@ -504,18 +475,14 @@ class LineFollower(Node):
                                  self.sign_board_callback, QOS)
         self.create_subscription(Odometry, '/cerebri/out/odometry',
                                  self.odometry_callback, QOS)
-
         # ---------------- publishers ----------------
         self.publisher_joy = self.create_publisher(Joy, '/cerebri/in/joy', QOS)
         self.publisher_server = self.create_publisher(
             ServerCommunication, '/ServerCommunication', QOS)
-
         self.server = ServerLink(self.publisher_server, self.get_logger())
-
         # ---------------- control outputs ----------------
         self.target_speed = 0.0
         self.target_turn = 0.0
-
         # ---------------- perception state ----------------
         self.lane_turn = 0.0            # steering suggested by lane following
         self.lane_visible = False
@@ -529,8 +496,10 @@ class LineFollower(Node):
         self.lane_lost_since = None
         self.lane_lost_yaw = None
         self.front_dist_raw = float('inf')
+        self.front_dist = float('inf')
         self.left_clear = float('inf')
         self.right_clear = float('inf')
+        self.rear_clear = float('inf')  # LiDAR clearance behind the buggy
         self.nearest_dist = float('inf')
         self.nearest_bearing = 0.0
         self.corridor_dist = float('inf')
@@ -550,7 +519,6 @@ class LineFollower(Node):
         self.obstacle_block = False
         self._last_lidar_log = 0.0
         self._last_zone_log = 0.0
-
         self.last_qr = None
         self.last_qr_time = 0.0
         # Verbatim QR text per building, so the RAW payload format can be sent
@@ -558,7 +526,6 @@ class LineFollower(Node):
         self.qr_raw_by_building = {}
         self.last_sign = None
         self.last_sign_time = 0.0
-
         # ---------------- sign routing ----------------
         self.routing_table = {}       # letter code -> 'LEFT' | 'RIGHT' | 'STRAIGHT'
         self.routing_time = 0.0
@@ -566,7 +533,6 @@ class LineFollower(Node):
         self.pending_turn_yaw = None  # heading when it was latched
         self.turn_committed_at = 0.0
         self.was_lane_visible = True
-
         # ---------------- navigation state ----------------
         self.pose_x = 0.0
         self.pose_y = 0.0
@@ -574,17 +540,17 @@ class LineFollower(Node):
         self.have_pose = False
         # building name -> (x, y) where its QR was successfully read
         self.building_map = {}
-
         # ---------------- stuck detection ----------------
         self.last_progress_x = 0.0
         self.last_progress_y = 0.0
         self.last_progress_time = time.time()
         self.contact_since = None
-        self.recovery_until = 0.0
         self.recovery_return_state = None
         self.last_recovery_time = 0.0
         self.recovery_turn_sign = 1.0
-
+        self.recovery_phase = None      # 'REVERSE' | 'ESCAPE' while in RECOVERY
+        self.recovery_started = 0.0     # when the whole manoeuvre began
+        self.recovery_phase_started = 0.0  # when the current phase began
         # ---------------- mission state ----------------
         self.state = State.INIT
         self.target_building = None     # e.g. "PATIENT_1"
@@ -598,30 +564,23 @@ class LineFollower(Node):
         self.parked_sent = False
         self.park_started = None
         self.last_park_announce = 0.0
-
         # 20 Hz control loop
         self.create_timer(0.05, self.control_loop)
-
         self.get_logger().info("Runner up. Mission state machine armed.")
-
     # =========================================================================
     # STATE HELPERS
     # =========================================================================
-
     def set_state(self, new_state):
         if new_state != self.state:
             self.get_logger().info(
                 f"[STATE] {self.state.name} -> {new_state.name}")
             self.state = new_state
             self.state_entered = time.time()
-
     def time_in_state(self):
         return time.time() - self.state_entered
-
     def effective_target(self):
         """
         The building we are currently trying to reach.
-
         At mission start (and after each delivery) we have no assignment yet,
         so ANY patient building is a legitimate target - that is how the first
         patient is found. Once the server assigns a hospital, that becomes the
@@ -642,7 +601,6 @@ class LineFollower(Node):
                 and self.last_qr not in self.registered):
             return self.last_qr
         return None
-
     def odometry_callback(self, message):
         """Track pose so building sightings can be geo-referenced."""
         p = message.pose.pose.position
@@ -654,7 +612,6 @@ class LineFollower(Node):
         cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         self.pose_yaw = math.atan2(siny, cosy)
         self.have_pose = True
-
     def remember_building(self, name):
         """Record where a building was seen, the first time we see it."""
         if not self.have_pose or name in self.building_map:
@@ -663,7 +620,6 @@ class LineFollower(Node):
         self.get_logger().info(
             f"[MAP] {name} logged at ({self.pose_x:.1f}, {self.pose_y:.1f}) "
             f"- {len(self.building_map)} building(s) known")
-
     def goal_bearing_error(self, name):
         """
         Signed heading error to a known building, in radians.
@@ -679,7 +635,6 @@ class LineFollower(Node):
         err = desired - self.pose_yaw
         # normalise to [-pi, pi]
         return math.atan2(math.sin(err), math.cos(err))
-
     def goal_steer_bias(self, name):
         """Steering contribution that turns us toward a known target."""
         # A latched sign instruction is authoritative - it came from the road
@@ -690,18 +645,15 @@ class LineFollower(Node):
         # With the lane in view we follow the lane, full stop.
         if self.lane_confidence >= 1:
             return 0.0
-
         err = self.goal_bearing_error(name)
         if err is None:
             return 0.0
         if abs(err) < math.radians(BEARING_DEADZONE_DEG):
             return 0.0
         return max(min(err / math.pi * 2.0, 1.0), -1.0) * GOAL_BIAS_MAX
-
     def is_stuck(self):
         """
         True when we are commanding forward motion but not actually escaping.
-
         Two independent detectors, because either can be fooled alone: wheel
         odometry lies when the wheels spin against an obstacle, and the LiDAR
         corridor says nothing about a buggy beached on geometry it cannot see.
@@ -715,18 +667,8 @@ class LineFollower(Node):
             return False
         if time.time() - self.last_recovery_time < RECOVERY_COOLDOWN_SEC:
             return False
-
         # During a committed approach we are DELIBERATELY crawling right next
-        # to a building - and approaching at an angle puts a wall inside
-        # STUCK_CONTACT_DIST of the front arc while we are driving perfectly
-        # correctly. The contact detector cannot tell that apart from being
-        # wedged, so it reversed out of good approaches while still inside the
-        # lane. Slow, close and deliberate is not stuck.
-        if self.approach_since is not None:
-            self.contact_since = None
-            return False
-
-        # Contact detector: odometry lies when wheels spin against an obstacle.
+        # to a building. Slow, close and deliberate is not stuck.
         # Contact detector: odometry lies when wheels spin against an obstacle.
         # This checks front_dist directly, only at genuine contact range,
         # skipped during approach (handled above) to avoid false positives
@@ -742,7 +684,6 @@ class LineFollower(Node):
                     return True
             else:
                 self.contact_since = None
-
         # The LiDAR contact detector has been REMOVED. It declared "stuck"
         # whenever anything sat inside the corridor closer than 0.45 m for two
         # seconds - and that is precisely what pulling up beside a building
@@ -761,82 +702,129 @@ class LineFollower(Node):
             self.last_progress_y = self.pose_y
             self.last_progress_time = time.time()
             return False
-
         return (time.time() - self.last_progress_time) > STUCK_WINDOW_SEC
-
     def enter_recovery(self):
-        """Begin a timed reverse manoeuvre, remembering where to return to."""
+        """
+        Begin a LiDAR-driven recovery manoeuvre, remembering where to return to.
+        This no longer commits to a fixed reverse duration. It only commits to
+        a DIRECTION (away from whichever side currently has less room, so we
+        rotate toward the opening rather than back into the same trap) and a
+        starting phase. How far we actually back up is decided tick-by-tick in
+        drive_recovery() from live front/rear range, not from a clock.
+        """
         if self.state == State.RECOVERY:
             return
         self.recovery_return_state = self.state
-        self.recovery_until = time.time() + REVERSE_SEC
-        # Reverse away from whichever side has less room, so we rotate toward
-        # the opening rather than back into the same trap.
         self.recovery_turn_sign = (-1.0 if self.left_clear < self.right_clear
                                    else 1.0)
+        now = time.time()
+        self.recovery_started = now
+        self.recovery_phase = 'REVERSE'
+        self.recovery_phase_started = now
         self.get_logger().warn(
             f"[RECOVERY] stuck detected - reversing out "
             f"(front={self.front_dist:.2f} L={self.left_clear:.2f} "
-            f"R={self.right_clear:.2f})")
+            f"R={self.right_clear:.2f} rear={self.rear_clear:.2f})")
         self.set_state(State.RECOVERY)
-
     def drive_recovery(self):
-        """Back up, then turn away from the obstacle before resuming."""
+        """
+        Back up, then turn away from the obstacle - both phases driven by
+        live LiDAR range rather than a fixed clock.
+        REVERSE phase: keep backing up until the FRONT sector reports genuine
+        clearance (RECOVERY_FRONT_CLEAR - deliberately well past the contact
+        distance that triggered recovery, so the buggy comes back noticeably
+        further than a fixed-time reverse would). This is cut short the
+        instant the REAR sector closes to RECOVERY_REAR_MIN, so we never trade
+        one collision for another. A minimum reverse time guards against
+        bailing out on a single noisy reading before any real distance has
+        been covered. A maximum reverse time is a safety cap only - it should
+        not normally be what ends the phase.
+        ESCAPE phase: hold a turn away from the obstacle, driving forward,
+        until the LiDAR collision corridor itself reports clear ahead
+        (RECOVERY_ESCAPE_MIN_CORRIDOR), rather than for a fixed duration that
+        might end with the heading still fouled or run on after the path is
+        already open.
+        """
         now = time.time()
-
-        if now < self.recovery_until:
+        phase_elapsed = now - self.recovery_phase_started
+        if self.recovery_phase == 'REVERSE':
+            front_cleared = self.front_dist >= RECOVERY_FRONT_CLEAR
+            rear_blocked = self.rear_clear < RECOVERY_REAR_MIN
+            min_time_met = phase_elapsed >= RECOVERY_MIN_REVERSE_SEC
+            timed_out = phase_elapsed > RECOVERY_MAX_REVERSE_SEC
+            if rear_blocked and min_time_met:
+                self.get_logger().warn(
+                    f"[RECOVERY] rear closed to {self.rear_clear:.2f}m after "
+                    f"{phase_elapsed:.1f}s - stopping reverse early, "
+                    f"turning away instead")
+                self.recovery_phase = 'ESCAPE'
+                self.recovery_phase_started = now
+                return
+            if min_time_met and (front_cleared or timed_out):
+                self.get_logger().info(
+                    f"[RECOVERY] reversed clear: front={self.front_dist:.2f}m "
+                    f"rear={self.rear_clear:.2f}m in {phase_elapsed:.1f}s "
+                    f"-> escape turn")
+                self.recovery_phase = 'ESCAPE'
+                self.recovery_phase_started = now
+                return
             self.set_control(REVERSE_SPEED,
                              REVERSE_TURN * self.recovery_turn_sign)
             return
-
-        # Escape phase: drive forward while holding a turn away from whatever
-        # we hit. Without this the buggy reversed off the obstacle and then
-        # drove straight back into it, since its heading was unchanged.
-        if now < self.recovery_until + ESCAPE_SEC:
+        if self.recovery_phase == 'ESCAPE':
+            # Without this the buggy reversed off the obstacle and then drove
+            # straight back into it, since its heading was unchanged; holding
+            # the turn until the corridor itself reports clear (rather than
+            # for a fixed duration) confirms the heading actually fixed it.
+            corridor_clear = self.corridor_dist >= RECOVERY_ESCAPE_MIN_CORRIDOR
+            timed_out = phase_elapsed > RECOVERY_ESCAPE_MAX_SEC
+            if corridor_clear or timed_out:
+                self.finish_recovery()
+                return
             self.set_control(ESCAPE_SPEED,
                              ESCAPE_TURN * self.recovery_turn_sign)
             return
-
+        # Should not happen, but never leave the buggy stuck in RECOVERY with
+        # no phase set.
+        self.finish_recovery()
+    def finish_recovery(self):
+        """Hand control back to whatever state recovery interrupted."""
+        now = time.time()
         self.last_recovery_time = now
         self.last_progress_x = self.pose_x
         self.last_progress_y = self.pose_y
         self.last_progress_time = now
         self.contact_since = None
+        self.recovery_phase = None
         back_to = self.recovery_return_state or State.SEEK_PATIENT
-        self.get_logger().info(f"[RECOVERY] complete -> {back_to.name}")
+        total = now - self.recovery_started
+        self.get_logger().info(
+            f"[RECOVERY] complete in {total:.1f}s -> {back_to.name}")
         self.set_state(back_to)
-
     def qr_is_fresh(self):
         return (self.last_qr is not None
                 and (time.time() - self.last_qr_time) < QR_FRESH_SEC)
-
     def at_building_wall(self):
         """
         Conservative proxy for 'inside the building zone'.
-
         Uses the WIDE arc, not the forward path: the sign board and building
         face are usually off to one side as we pull alongside, so a narrow
         forward check would report clear road and we would sail past.
         """
         return self.nearest_dist < ZONE_WALL_DIST
-
     def in_zone_for(self, building):
         """Only transmit when BOTH proximity and a fresh matching QR agree."""
         return (self.at_building_wall()
                 and self.qr_is_fresh()
                 and self.last_qr == building)
-
     # =========================================================================
     # PERCEPTION CALLBACKS
     # =========================================================================
-
     def edge_vectors_callback(self, message):
         """
         Convert lane boundary vectors into a steering command.
-
         The controller estimates the lane CENTRE in image space, then applies
         PD control on the normalised deviation from the image centre.
-
         Both-edges case : centre = midpoint of the two boundaries, and the
                           observed lane width is learned.
         Single-edge case: centre = boundary offset by half the LEARNED lane
@@ -849,26 +837,21 @@ class LineFollower(Node):
         width = float(message.image_width) if message.image_width else 320.0
         half = width / 2.0
         now = time.time()
-
         if self.lane_width_px is None:
             self.lane_width_px = LANE_WIDTH_INIT_FRAC * width
-
         count = message.vector_count
         self.lane_confidence = count
         centre = None
-
         if count >= 2:
             x1 = (message.vector_1[0].x + message.vector_1[1].x) / 2.0
             x2 = (message.vector_2[0].x + message.vector_2[1].x) / 2.0
             observed = abs(x2 - x1)
             left_x, right_x = min(x1, x2), max(x1, x2)
             ratio = observed / self.lane_width_px if self.lane_width_px else 1.0
-
             # --- V-fork: the two boundaries are two different branches ----
             if ratio > FORK_WIDTH_RATIO:
                 self.fork_until = now + FORK_HOLD_SEC
             in_fork = now < self.fork_until and self.front_dist >= OBSTACLE_SLOW_DIST
-
             if in_fork:
                 want = self.pending_turn if self.pending_turn in (
                     'LEFT', 'RIGHT') else None
@@ -883,7 +866,6 @@ class LineFollower(Node):
                     else:
                         self.fork_take_left = left_x > (width - right_x)
                 take_left = self.fork_take_left
-
                 # Aim at the middle of the chosen opening, directly (no EMA:
                 # at a fork the smoother is pure lag).
                 aim = (left_x / 2.0) if take_left else (right_x + width) / 2.0
@@ -894,7 +876,6 @@ class LineFollower(Node):
                 self.prev_lane_time = now
                 self.lane_visible = True
                 self.lane_lost_since = None
-
                 if not self.fork_logged:
                     self.fork_logged = True
                     self.get_logger().info(
@@ -909,9 +890,7 @@ class LineFollower(Node):
             else:
                 self.fork_logged = False
                 self.fork_take_left = None      # ready for the next fork
-
             centre = (x1 + x2) / 2.0
-
             # --- curve bias: undo the perspective drift -------------------
             # Each boundary vector leans in image space when the road bends.
             # Average lean measures the curve; shift the aim point back
@@ -922,18 +901,15 @@ class LineFollower(Node):
             shift = max(min(CURVE_LEAN_GAIN * lean,
                             CURVE_LEAN_MAX_PX), -CURVE_LEAN_MAX_PX)
             centre -= shift
-
             # Learn the lane width, ignoring implausible observations.
             if 0.25 * width < observed < 1.5 * width:
                 r = LANE_WIDTH_LEARN_RATE
                 self.lane_width_px = (1.0 - r) * self.lane_width_px + r * observed
-
         elif count == 1:
             vx = (message.vector_1[0].x + message.vector_1[1].x) / 2.0
             offset = (self.lane_width_px / 2.0) * SINGLE_EDGE_MARGIN
             # Boundary left of frame centre -> lane lies to its right.
             centre = vx + offset if vx < half else vx - offset
-
         if centre is None:
             # Lane lost. This is usually one of two things:
             #   a) a momentary dropout mid-curve  -> keep turning (momentum)
@@ -950,7 +926,6 @@ class LineFollower(Node):
             if self.lane_lost_since is None:
                 self.lane_lost_since = now
                 self.lane_lost_yaw = self.pose_yaw if self.have_pose else None
-
             # A latched sign instruction is spent HERE. The lane vanishing is
             # our intersection detector: it is exactly the moment the geometry
             # stops telling us where to go and the sign has to.
@@ -958,7 +933,6 @@ class LineFollower(Node):
                 sign = 1.0 if self.pending_turn == 'LEFT' else -1.0
                 self.lane_turn = sign * TURN_COMMIT_STEER
                 return
-
             if now - self.lane_lost_since > LANE_LOST_MAX_SEC:
                 if self.have_pose and self.lane_lost_yaw is not None:
                     err = self.lane_lost_yaw - self.pose_yaw
@@ -971,25 +945,21 @@ class LineFollower(Node):
                 self.lane_turn *= LANE_LOST_DECAY
             self.was_lane_visible = False
             return
-
         self.lane_visible = True
         self.lane_lost_since = None
         self.lane_lost_yaw = None
-
         # Lane reacquired. If we were mid-commitment, the junction is behind us
         # and the instruction has been spent - clear it so we do not turn again
         # at the following junction.
         if not self.was_lane_visible and self.pending_turn is not None:
             self.clear_pending_turn("lane reacquired")
         self.was_lane_visible = True
-
         # --- PD on normalised deviation ---
         deviation = (half - centre) / half          # +ve => lane centre is left
         dt = (now - self.prev_lane_time) if self.prev_lane_time else 0.0
         derivative = ((deviation - self.prev_deviation) / dt) if dt > 1e-3 else 0.0
         self.prev_deviation = deviation
         self.prev_lane_time = now
-
         # Progressive gain: a small deviation gets a gentle correction, but once
         # we are genuinely running wide the gain rises sharply. Constant gain
         # tuned soft enough to avoid weaving on straights is, by construction,
@@ -998,16 +968,13 @@ class LineFollower(Node):
         kp = LANE_KP if abs(deviation) < DEVIATION_SLOW else LANE_KP_FAR
         raw_turn = kp * deviation + LANE_KD * derivative
         self.lane_deviation = deviation
-
         # --- EMA smoothing: suppresses the straight-line weave ---
         a = TURN_SMOOTHING
         self.lane_turn = a * self.lane_turn + (1.0 - a) * raw_turn
         self.lane_turn = max(min(self.lane_turn, TURN_MAX), -TURN_MAX)
-
     def lidar_callback(self, message):
         """
         Extract front clearance and left/right escape room from the scan.
-
         IMPORTANT: this scan spans angle_min..angle_max (here -pi..+pi), so
         index 0 is NOT straight ahead - forward is wherever angle == 0 falls.
         We therefore map each desired bearing (0 = forward, +90 = left,
@@ -1018,15 +985,12 @@ class LineFollower(Node):
         n = len(ranges)
         if n == 0:
             return
-
         angle_min = message.angle_min
         angle_inc = message.angle_increment if message.angle_increment else (
             2.0 * math.pi / n)
-
         def idx_for(bearing_rad):
             i = int(round((bearing_rad - angle_min) / angle_inc))
             return max(0, min(n - 1, i))
-
         def sector_min(center_deg, half_width_deg):
             """Minimum valid range in an angular sector about a bearing."""
             c = math.radians(center_deg)
@@ -1039,7 +1003,6 @@ class LineFollower(Node):
                      if r is not None and not math.isinf(r)
                      and not math.isnan(r) and r > 0.05]
             return min(valid) if valid else float('inf')
-
         def sector_min_bearing(center_deg, half_width_deg):
             """Nearest range in a sector AND the bearing (deg) it was found at."""
             c = math.radians(center_deg)
@@ -1058,7 +1021,6 @@ class LineFollower(Node):
                 return float('inf'), 0.0
             bearing = math.degrees(angle_min + best_i * angle_inc)
             return best_r, bearing
-
         # Bearings in the sensor frame: 0 rad = forward, +90 = left, -90 = right.
         raw_front = sector_min(0, FRONT_ARC_DEG)
         if raw_front <= self.front_dist_raw:
@@ -1068,8 +1030,10 @@ class LineFollower(Node):
         self.front_dist_raw = raw_front
         self.left_clear = sector_min(90, SIDE_ARC_DEG)
         self.right_clear = sector_min(-90, SIDE_ARC_DEG)
+        # Behind the buggy (bearing 180 deg), used only by recovery so it does
+        # not back further into something it cannot see with the front sectors.
+        self.rear_clear = sector_min(180, REAR_ARC_DEG)
         self.obstacle_block = self.front_dist < OBSTACLE_STOP_DIST
-
         # Buildings sit BESIDE the road, not across it, so "have I arrived at
         # this building" cannot use the narrow front path - driving past a
         # building with it on our left leaves front_dist at infinity. This wide
@@ -1078,7 +1042,6 @@ class LineFollower(Node):
         # gate and the approach steer, never for obstacle avoidance.
         self.nearest_dist, self.nearest_bearing = sector_min_bearing(
             0, ZONE_ARC_DEG)
-
         # --- collision corridor -------------------------------------------
         # Forward clearance to anything that would actually strike the body,
         # found by projecting each return into forward/lateral components
@@ -1107,7 +1070,6 @@ class LineFollower(Node):
         self.corridor_dist = corridor
         # +1 => intruder on our left, so we should steer right, and vice versa.
         self.corridor_side = 1.0 if corridor_lat >= 0.0 else -1.0
-
         # Throttled debug: prove what the front sector sees. Remove once tuned.
         if DEBUG_LIDAR:
             now = time.time()
@@ -1118,7 +1080,6 @@ class LineFollower(Node):
                     f"near={self.nearest_dist:.2f} "
                     f"L={self.left_clear:.2f} R={self.right_clear:.2f} "
                     f"block={self.obstacle_block}")
-
     def qr_detection_callback(self, message):
         """Normalise a QR payload such as '{LOC: PATIENT_1}' to 'PATIENT_1'."""
         raw = (message.data or "").strip()
@@ -1133,11 +1094,9 @@ class LineFollower(Node):
         self.qr_raw_by_building[building] = raw
         self.last_qr = building
         self.last_qr_time = time.time()
-
     def sign_board_callback(self, message):
         """
         Consume a routing table such as "A:LEFT,B:RIGHT,C:STRAIGHT".
-
         One board carries several destinations, so we store the whole table and
         look up whichever building we happen to be seeking. The instruction is
         LATCHED rather than acted on immediately: the sign becomes readable well
@@ -1147,7 +1106,6 @@ class LineFollower(Node):
         data = (message.data or "").strip().upper()
         if not data:
             return
-
         table = {}
         for part in data.split(','):
             if ':' not in part:
@@ -1157,19 +1115,15 @@ class LineFollower(Node):
             if code in NAME_TO_CODE.values() and direction in (
                     'LEFT', 'RIGHT', 'STRAIGHT'):
                 table[code] = direction
-
         if not table:
             return
-
         self.routing_table = table
         self.routing_time = time.time()
         if data != self.last_sign:
             self.get_logger().info(f"[SIGN] {data}")
         self.last_sign = data
         self.last_sign_time = time.time()
-
         self.latch_turn_for_target()
-
     def latch_turn_for_target(self):
         """If the current target appears in the routing table, remember its turn."""
         target = self.effective_target()
@@ -1182,18 +1136,15 @@ class LineFollower(Node):
             return
         if time.time() - self.turn_committed_at < TURN_COOLDOWN_SEC:
             return
-
         direction = self.routing_table.get(code)
         if direction and direction != self.pending_turn:
             self.pending_turn = direction
             self.pending_turn_yaw = self.pose_yaw if self.have_pose else None
             self.get_logger().info(
                 f"[ROUTE] {target} ({code}) -> {direction} at next junction")
-
     def dodge_left(self):
         """
         Which way to swerve around something in the forward path, LATCHED.
-
         Direction logic: side clearance alone is a poor signal, because it
         mostly reports the buildings lining the road - so the roomier side is
         often simply off the track. The LANE therefore gets first say: if the
@@ -1201,38 +1152,64 @@ class LineFollower(Node):
         dodge that way, since that direction is both clear and on the road.
         Only when the lane has no opinion, or the side it wants is blocked, do
         we fall back to raw clearance.
-
         The LATCH is what makes it work. The inputs to that decision change as
         soon as we act on it, so recomputing every tick oscillates and the
         buggy never actually moves sideways. Decide once, hold until clear.
         """
         now = time.time()
-
         # Still inside a live encounter: hold the committed side.
         if self.dodge_side_left is not None and now < self.dodge_until:
             self.dodge_until = now + AVOID_HOLD_SEC
             return self.dodge_side_left
-
         wants_left = self.lane_turn > 0.05
         wants_right = self.lane_turn < -0.05
-
         # If one side is overwhelmingly more open than the other, take it and
         # do not argue - a 7 m gap against a 1.5 m gap is not a close call,
         # whatever the lane happens to prefer at this instant.
-        lopsided_left = self.left_clear > AVOID_SIDE_RATIO * self.right_clear
-        lopsided_right = self.right_clear > AVOID_SIDE_RATIO * self.left_clear
+                # ================================================================
+        # LANE-FIRST OBSTACLE AVOIDANCE
+        #
+        # Camera defines the drivable road.
+        # LiDAR only tells us which side is physically blocked.
+        #
+        # NEVER choose an escape direction merely because that side has
+        # more open LiDAR space. Open space may be pavement, grass, apron,
+        # building frontage, etc.
+        # ================================================================
 
-        if lopsided_left:
-            choice = True
-        elif lopsided_right:
-            choice = False
-        elif wants_left and self.left_clear > AVOID_SIDE_MIN:
-            choice = True
-        elif wants_right and self.right_clear > AVOID_SIDE_MIN:
-            choice = False
+        lane_visible = self.lane_visible and self.lane_confidence >= 1
+
+        wants_left = self.lane_turn > 0.08
+        wants_right = self.lane_turn < -0.08
+
+        if lane_visible:
+
+            # Strong lane correction = stay with the camera.
+            # Only reject that direction if LiDAR says it is blocked.
+            if wants_left and self.left_clear > AVOID_SIDE_MIN:
+                choice = True
+
+            elif wants_right and self.right_clear > AVOID_SIDE_MIN:
+                choice = False
+
+            # Camera wants left, but left is blocked -> use right
+            # ONLY as an emergency escape.
+            elif wants_left and self.right_clear > AVOID_SIDE_MIN:
+                choice = False
+
+            # Camera wants right, but right is blocked -> use left.
+            elif wants_right and self.left_clear > AVOID_SIDE_MIN:
+                choice = True
+
+            else:
+                # Both sides are bad. Pick the side with more clearance,
+                # but this is an emergency case only.
+                choice = self.left_clear > self.right_clear
+
         else:
+            # Camera has no reliable lane.
+            # ONLY here does LiDAR clearance decide the direction.
             choice = self.left_clear > self.right_clear
-
         self.dodge_side_left = choice
         self.dodge_until = now + AVOID_HOLD_SEC
         self.get_logger().info(
@@ -1241,15 +1218,12 @@ class LineFollower(Node):
             f"(lane_turn={self.lane_turn:+.2f} L={self.left_clear:.2f} "
             f"R={self.right_clear:.2f})")
         return choice
-
     def junction_turn_bias(self):
         """
         Ease toward a latched turn as soon as a junction is DETECTED, rather
         than waiting for the lane to disappear.
-
         The junction signal is a side opening: clearance on that side much
         larger than a street lined with buildings would give.
-
         PRIORITY RULE - this is the important part. Routing is a PREFERENCE;
         staying inside the lane is a CONSTRAINT. So whenever the routing nudge
         opposes what the lane controller is asking for, it is attenuated in
@@ -1258,34 +1232,40 @@ class LineFollower(Node):
         lane controller is fighting to keep us off a boundary is how you leave
         the road. At full lane effort the routing bias vanishes entirely.
         """
+        if self.pending_turn == 'STRAIGHT':
+            # No steering bias is required for STRAIGHT. Once a genuine branch
+            # opening is detected, consume the instruction so it cannot suppress
+            # goal-bearing navigation at later intersections.
+            if max(self.left_clear, self.right_clear) >= JUNCTION_OPENING_DIST:
+                self.clear_pending_turn("straight junction passed")
+            return 0.0
         if self.pending_turn not in ('LEFT', 'RIGHT'):
             return 0.0
-
         side = (self.left_clear if self.pending_turn == 'LEFT'
                 else self.right_clear)
         if side < JUNCTION_OPENING_DIST:
             return 0.0                      # no branch that way yet
-
         sign = 1.0 if self.pending_turn == 'LEFT' else -1.0
         scale = 1.0 if self.lane_confidence <= 1 else 0.5
-
         # Lane keeping outranks routing preference.
         if sign * self.lane_turn < 0:       # bias opposes the lane correction
             effort = min(abs(self.lane_turn) / LANE_EFFORT_FULL, 1.0)
             scale *= (1.0 - effort)
-
         return sign * TURN_EARLY_BIAS * scale
-
     def turn_completed(self):
-        """True once we have rotated far enough to call the turn done."""
-        if self.pending_turn is None or self.pending_turn_yaw is None:
+        """True once a LEFT/RIGHT instruction has rotated far enough to finish."""
+        # STRAIGHT is a routing instruction too, but it does not imply a
+        # 55-degree heading change. It is consumed at the junction instead of
+        # being allowed to remain latched forever.
+        if self.pending_turn not in ('LEFT', 'RIGHT'):
+            return False
+        if self.pending_turn_yaw is None:
             return False
         if not self.have_pose:
             return False
         err = self.pose_yaw - self.pending_turn_yaw
         err = math.atan2(math.sin(err), math.cos(err))
         return abs(math.degrees(err)) > TURN_DONE_YAW_DEG
-
     def clear_pending_turn(self, reason):
         if self.pending_turn is None:
             return
@@ -1293,13 +1273,10 @@ class LineFollower(Node):
         self.pending_turn = None
         self.pending_turn_yaw = None
         self.turn_committed_at = time.time()
-
     # ---------------- payload format -------------------------------------
-
     @property
     def payload_style(self):
         return PAYLOAD_FORMATS[self.payload_index]
-
     def server_payload(self, building):
         """The wire representation of a building under the current format."""
         style = self.payload_style
@@ -1308,7 +1285,6 @@ class LineFollower(Node):
         if style == PAYLOAD_NAME:
             return building
         return NAME_TO_CODE.get(building, building)
-
     def transmit_building(self, building):
         """Send a building to the server and remember it for a format retry."""
         self.last_tx_building = building
@@ -1317,11 +1293,9 @@ class LineFollower(Node):
             f"[SERVER] sending {building} as '{payload}' "
             f"(format={self.payload_style})")
         self.server.send(payload)
-
     def can_retry_format(self):
         """
         True when an INVALID could plausibly be a payload-format problem.
-
         Three conditions. The format must not already be proven - once the
         server has accepted something, INVALID means we are outside a zone and
         rewording would waste the retry. We must still be reading the code of
@@ -1334,7 +1308,6 @@ class LineFollower(Node):
                 and self.last_tx_building is not None
                 and self.qr_is_fresh()
                 and self.last_qr == self.last_tx_building)
-
     def retry_alternate_format(self):
         """Resend the last building in the next payload format, in place."""
         self.payload_index += 1
@@ -1345,11 +1318,9 @@ class LineFollower(Node):
         self.server.send(payload)
         # Restart the wait clock: the reply we are waiting for is the new one.
         self.state_entered = time.time()
-
     def mark_payload_proven(self):
         """
         The server acted on something we sent, so this format is correct.
-
         Guarded on having actually transmitted: the server can address us
         before we have said anything, and treating that as proof would latch a
         format we never tested and disable the fallback for the whole run.
@@ -1360,19 +1331,15 @@ class LineFollower(Node):
             self.payload_proven = True
             self.get_logger().info(
                 f"[SERVER] payload format confirmed: {self.payload_style}")
-
     def server_communication_callback(self, message):
         """Route server payloads into the mission state machine."""
         payload = self.server.handle(message)
         if payload is None:
             return
-
         upper = payload.upper()
-
         # Server may reply with a letter code or a full building name.
         if upper in CODE_TO_NAME:
             upper = CODE_TO_NAME[upper]
-
         if upper == "INVALID":
             # During parking, INVALID means "not parked correctly" - NOT that a
             # delivery was rejected. Without this check a bad parking position
@@ -1382,7 +1349,6 @@ class LineFollower(Node):
                     "[SERVER] INVALID - not parked correctly, continuing "
                     "to look for the parking area")
                 return
-
             # Before assuming a zone error, consider the payload wording. If we
             # are still reading the code of the building we just transmitted,
             # we are demonstrably where we were when we sent it - the zone is
@@ -1390,7 +1356,6 @@ class LineFollower(Node):
             if self.can_retry_format():
                 self.retry_alternate_format()
                 return
-
             # A genuine zone rejection. The penalty is taken, but the points
             # are still available and the PDF's own example shows a rejected
             # transmission followed by a successful retry from inside the zone.
@@ -1398,7 +1363,6 @@ class LineFollower(Node):
             self.approach_since = None
             self.approach_target = None
             self.arrival_building = None
-
             if self.pending_delivery:
                 hospital = self.pending_delivery
                 self.pending_delivery = None
@@ -1409,7 +1373,6 @@ class LineFollower(Node):
                     f"(outside zone), re-approaching to retry")
                 self.set_state(State.SEEK_HOSPITAL)
                 return
-
             if self.target_building and self.target_building.startswith("PATIENT"):
                 self.registered.discard(self.target_building)
                 self.get_logger().error(
@@ -1417,12 +1380,10 @@ class LineFollower(Node):
                     f"rejected (outside zone), re-approaching to retry")
                 self.set_state(State.SEEK_PATIENT)
                 return
-
             self.get_logger().error("[SERVER] INVALID - resuming search")
             self.set_state(State.SEEK_HOSPITAL if self.assigned_hospital
                            else State.SEEK_PATIENT)
             return
-
         if upper == "OK":
             # The PDF gives OK two meanings, disambiguated by where we are in
             # the mission. After the THIRD hospital transmission, OK is the
@@ -1444,7 +1405,6 @@ class LineFollower(Node):
             self.parked_sent = True
             self.set_state(State.DONE)
             return
-
         if upper.startswith("HOSPITAL"):
             self.mark_payload_proven()
             self.assigned_hospital = upper
@@ -1457,7 +1417,6 @@ class LineFollower(Node):
             self.latch_turn_for_target()
             self.set_state(State.SEEK_HOSPITAL)
             return
-
         if upper.startswith("PATIENT"):
             # Receiving a patient is the server's confirmation that the
             # previous delivery landed inside the hospital zone ("If the buggy
@@ -1472,7 +1431,6 @@ class LineFollower(Node):
                     f"delivered {self.delivered}/{TOTAL_PATIENTS}")
                 self.pending_delivery = None
                 self.assigned_hospital = None
-
             self.target_building = upper
             self.get_logger().info(f"[MISSION] next patient -> {upper}")
             self.pending_turn = None
@@ -1482,14 +1440,11 @@ class LineFollower(Node):
             self.latch_turn_for_target()
             self.set_state(State.SEEK_PATIENT)
             return
-
     # =========================================================================
     # CONTROL LOOP
     # =========================================================================
-
     def control_loop(self):
         self.server.tick()
-
         # Stuck detection runs above the state machine: being wedged against a
         # wall is possible from any driving state, and no other behaviour can
         # escape it because the normal control path never commands reverse.
@@ -1497,12 +1452,10 @@ class LineFollower(Node):
                               State.WAIT_ASSIGNMENT, State.WAIT_NEXT):
             if self.is_stuck():
                 self.enter_recovery()
-
         if self.state == State.RECOVERY:
             self.drive_recovery()
             self.publish_drive_commands()
             return
-
         if self.state == State.INIT:
             # The first patient is fixed by the rules, so we start seeking it
             # immediately rather than wandering until some patient happens to
@@ -1514,14 +1467,11 @@ class LineFollower(Node):
             self.get_logger().info(f"[MISSION] first target -> {FIRST_PATIENT}")
             self.latch_turn_for_target()
             self.set_state(State.SEEK_PATIENT)
-
         elif self.state in (State.SEEK_PATIENT, State.SEEK_HOSPITAL):
             self.drive_seeking()
-
         elif self.state == State.AT_BUILDING:
             self.drive_stop()
             self.handle_at_building()
-
         elif self.state == State.WAIT_ASSIGNMENT:
             # Hold position inside the Patient Zone. Leaving before the
             # assignment arrives is explicitly a penalty, and the PDF shows the
@@ -1533,7 +1483,6 @@ class LineFollower(Node):
                     f"[MISSION] no assignment in {WAIT_ASSIGNMENT_TIMEOUT:.0f}s "
                     f"- leaving zone (accepting penalty) to keep the run alive")
                 self.set_state(State.SEEK_PATIENT)
-
         elif self.state == State.WAIT_NEXT:
             # Waiting for the delivery to be confirmed - by the next patient
             # (deliveries 1 and 2) or by OK (delivery 3). Both are handled in
@@ -1546,7 +1495,6 @@ class LineFollower(Node):
                 self.pending_delivery = None
                 self.set_state(State.SEEK_HOSPITAL if self.assigned_hospital
                                else State.SEEK_PATIENT)
-
         elif self.state == State.SEEK_EXIT:
             # The mission timer stopped at the third delivery, so nothing here
             # costs time percentile - pure bonus. The rules note the buggy need
@@ -1559,7 +1507,6 @@ class LineFollower(Node):
                 self.park_started = time.time()
                 self.get_logger().info(
                     "[MISSION] all deliveries done - heading for parking")
-
             elapsed = time.time() - self.park_started
             if elapsed > PARK_WINDOW_SEC:
                 self.get_logger().info("[MISSION] parking window closed")
@@ -1567,19 +1514,14 @@ class LineFollower(Node):
             elif time.time() - self.last_park_announce > PARK_ANNOUNCE_EVERY:
                 self.last_park_announce = time.time()
                 self.server.send("PARKED")
-
         elif self.state == State.PARKING:
             self.drive_stop()
-
         elif self.state == State.DONE:
             self.drive_stop()
-
         self.publish_drive_commands()
-
     def drive_seeking(self):
         """
         Lane following with reactive avoidance blended in (not overriding).
-
         Key idea: only the NARROW forward path should trigger a dodge. A wall
         we are driving alongside is close but irrelevant, so side/near readings
         must not yank the wheel. The avoidance term is proportional to how close
@@ -1587,17 +1529,14 @@ class LineFollower(Node):
         the buggy keeps tracking the lane while it eases around the object.
         """
         turn = self.lane_turn
-
         # Ease onto the branch a sign told us to take, as soon as LiDAR shows
         # the branch exists. This runs while the lane is still partly visible,
         # which is exactly the case the lane-loss commit misses.
         turn = max(min(turn + self.junction_turn_bias(), TURN_MAX), -TURN_MAX)
-
         # A completed rotation retires the instruction even if the lane never
         # fully vanished, so we do not carry it into the following junction.
         if self.turn_completed():
             self.clear_pending_turn("rotation complete")
-
         # Navigation: if we know where the target is, bias toward its bearing.
         # Authority is low while the lane is clearly visible and high when it
         # is not - i.e. this mostly decides which way to go at intersections,
@@ -1607,10 +1546,17 @@ class LineFollower(Node):
         # following has no path planning, so without this it will happily drive
         # into a wall that happens to lie between us and the goal.
         target_now = self.effective_target()
-        if target_now and self.front_dist > OBSTACLE_SLOW_DIST:
-            turn = max(min(turn + self.goal_steer_bias(target_now),
-                           TURN_MAX), -TURN_MAX)
-
+        # During a committed hospital approach, the CAMERA LANE
+        # determines steering. Do not steer toward the building.
+        if (
+            target_now
+            and self.front_dist > OBSTACLE_SLOW_DIST
+            and self.approach_since is None
+        ):
+            turn = max(
+                min(turn + self.goal_steer_bias(target_now), TURN_MAX),
+                -TURN_MAX
+            )
         # AVOIDANCE - the video-era front-arc version, restored.
         #
         # This was the regression behind the inner-line cutting. The corridor
@@ -1626,24 +1572,25 @@ class LineFollower(Node):
         #
         # NOTE: the corridor is still COMPUTED in lidar_callback - stuck
         # detection reads it. Only the steering response has changed.
-
         # Emergency: something very close, dead ahead. Steer toward the side
         # with more room but KEEP part of the lane term so we do not rotate
         # blindly across a boundary.
         if self.front_dist < OBSTACLE_STOP_DIST:
-            dodge_choice = self.dodge_left()
-            side_now_clear = self.left_clear if dodge_choice else self.right_clear
-            if side_now_clear < 0.60:
-                self.get_logger().warn(
-                    f"[AVOID] chosen side collapsed to {side_now_clear:.2f}m "
-                    f"mid-dodge - reversing out")
-                self.enter_recovery()
-                return
-            escape = 0.7 if dodge_choice else -0.7
-            turn = max(min(0.5 * self.lane_turn + escape, TURN_MAX), -TURN_MAX)
+            dodge_left = self.dodge_left()
+
+            # Keep the camera lane controller dominant.
+            # LiDAR provides only a small emergency steering correction.
+            escape = 0.35 if dodge_left else -0.35
+
+            turn = (
+                0.55 * self.lane_turn +
+                0.45 * escape
+            )
+
+            turn = max(min(turn, TURN_MAX), -TURN_MAX)
+
             self.set_control(AVOID_BRAKE_SPEED, turn)
             return
-
         # Proportional avoidance: ramps from 0 at OBSTACLE_SLOW_DIST to full
         # at OBSTACLE_STOP_DIST. No fixed slap, so driving parallel to a wall
         # that only clips the far edge of the front arc barely perturbs us.
@@ -1653,7 +1600,6 @@ class LineFollower(Node):
                 and self.dodge_side_left is not None
                 and time.time() > self.dodge_until):
             self.dodge_side_left = None
-
         self.avoiding_against_lane = False
         if self.front_dist < OBSTACLE_SLOW_DIST:
             span = OBSTACLE_SLOW_DIST - OBSTACLE_STOP_DIST
@@ -1661,7 +1607,6 @@ class LineFollower(Node):
             severity = max(0.0, min(1.0, severity))
             bias = OBSTACLE_BIAS_MAX * severity
             bias = bias if self.dodge_left() else -bias
-
             # Still fighting the lane? Scale the dodge back in proportion to
             # how hard the lane controller is working, keeping a floor so we
             # do not simply drive into the obstacle.
@@ -1669,9 +1614,7 @@ class LineFollower(Node):
                 effort = min(abs(self.lane_turn) / LANE_EFFORT_FULL, 1.0)
                 bias *= max(AVOID_LANE_FLOOR, 1.0 - effort)
                 self.avoiding_against_lane = True
-
             turn = max(min(turn + bias, TURN_MAX), -TURN_MAX)
-
         # --- arrival at the target building ------------------------------
         # Entering the approach requires a fresh decode of the target, but
         # STAYING in it does not: see APPROACH_QR_GRACE_SEC. Losing the code
@@ -1681,7 +1624,6 @@ class LineFollower(Node):
         target = self.effective_target()
         fresh_on_target = (target and self.qr_is_fresh()
                            and self.last_qr == target)
-
         if fresh_on_target and self.approach_since is None:
             self.approach_since = time.time()
             self.approach_target = target
@@ -1691,16 +1633,13 @@ class LineFollower(Node):
             self.approach_start_x = self.pose_x
             self.approach_start_y = self.pose_y
             self.get_logger().info(f"[APPROACH] closing on {target}")
-
         if self.approach_since is not None:
             committed = self.approach_target
             since_qr = time.time() - self.last_qr_time
             held = time.time() - self.approach_since
-
             # How far along the road we have come since the first decode.
             advanced = math.hypot(self.pose_x - self.approach_start_x,
                                   self.pose_y - self.approach_start_y)
-
             # (advanced is computed above and reused by the speed choice,
             # the abort rules and the arrival test.)
             # Abort rules depend on WHERE we are in the approach. Early on,
@@ -1723,7 +1662,6 @@ class LineFollower(Node):
                 if self.nearest_dist < self.approach_best - APPROACH_PROGRESS_M:
                     self.approach_best = self.nearest_dist
                     self.approach_best_time = time.time()
-
                 # NO steering toward the building. This used to lean toward
                 # `nearest_bearing`, which once alongside a building IS the
                 # building - so it drove the buggy off the road into the wall
@@ -1736,7 +1674,6 @@ class LineFollower(Node):
                 # Follow it, and let odometry decide when we are level with
                 # the building. `turn` is left exactly as the lane controller
                 # and avoidance produced it.
-
                 # Speed while approaching. The re-acquire crawl only makes
                 # sense EARLY, when a lost code might still come back into
                 # frame. Past halfway the board has gone abeam and will not
@@ -1753,9 +1690,7 @@ class LineFollower(Node):
                 else:
                     approach_speed = APPROACH_REACQUIRE_SPEED
                 self.set_control(approach_speed, turn)
-
                 stalled = time.time() - self.approach_best_time
-
                 # How far along the road we have come since the first decode.
                 # This is the quantity the zone rule is actually written in:
                 # the zone is a rectangle at the building's road frontage, so
@@ -1778,7 +1713,6 @@ class LineFollower(Node):
                            or (stalled > APPROACH_STALL_SEC
                                and advanced > 0.5 * APPROACH_ADVANCE_M)
                            or receding)
-
                 if arrived:
                     self.get_logger().info(
                         f"[APPROACH] advanced {advanced:.2f} m in {held:.1f}s "
@@ -1797,24 +1731,20 @@ class LineFollower(Node):
                             f"{APPROACH_ADVANCE_M:.1f} near={self.nearest_dist:.2f} "
                             f"qr_age={since_qr:.1f}s held={held:.1f}s")
                 return
-
         # Speed schedule: bleed speed with steering effort, and slow further
         # when lane confidence drops - losing an edge usually means a corner.
         speed = SPEED_CRUISE - TURN_SLOWDOWN_GAIN * abs(turn) * (
             SPEED_CRUISE - SPEED_CORNER)
-
         # Dodging against the lane is the case that put a wheel over the line.
         # Slowing is the cheapest resolution: the same obstacle clears with a
         # much smaller lateral excursion at low speed.
         if self.avoiding_against_lane:
             speed = min(speed, AVOID_BRAKE_SPEED)
-
         # A fork needs a tight branch entry in a short distance, which is
         # not possible at cruise. Crawling through it is the difference
         # between making the branch and driving into the divider.
         if time.time() < self.fork_until:
             speed = min(speed, FORK_SPEED)
-
         # Deviation predicts a boundary excursion better than steering effort
         # does: the EMA smoothing means the steering command lags the error, so
         # by the time |turn| is large we are already wide. Braking on deviation
@@ -1825,9 +1755,7 @@ class LineFollower(Node):
             speed = min(speed, SPEED_CORNER)
         if not self.lane_visible:
             speed = min(speed, SPEED_APPROACH)
-
         self.set_control(speed, turn)
-
     def handle_at_building(self):
         """We are stopped in the building's zone. Transmit what we committed to."""
         # Use the building the approach committed to, not whatever the camera
@@ -1836,7 +1764,6 @@ class LineFollower(Node):
         # exactly the position we spent the whole approach reaching.
         building = self.arrival_building or self.last_qr
         self.arrival_building = None
-
         if building is None:
             self.get_logger().warn(
                 "[MISSION] arrived with no building - backing out")
@@ -1846,7 +1773,6 @@ class LineFollower(Node):
                 State.SEEK_HOSPITAL if self.assigned_hospital
                 else State.SEEK_PATIENT)
             return
-
         # We must still have READ it recently - the honesty check that keeps
         # us from transmitting at a building we never actually reached.
         age = time.time() - self.last_qr_time
@@ -1864,16 +1790,13 @@ class LineFollower(Node):
                 State.SEEK_HOSPITAL if self.assigned_hospital
                 else State.SEEK_PATIENT)
             return
-
         if building.startswith("PATIENT"):
             self.transmit_building(building)
             self.registered.add(building)
             self.set_state(State.WAIT_ASSIGNMENT)
-
         elif building.startswith("FAKE"):
             self.get_logger().warn("[MISSION] fake hospital - not transmitting")
             self.set_state(State.SEEK_HOSPITAL)
-
         elif building.startswith("HOSPITAL"):
             if building != self.assigned_hospital:
                 self.get_logger().warn(
@@ -1890,31 +1813,23 @@ class LineFollower(Node):
             self.get_logger().info(
                 f"[MISSION] delivery of {building} sent - awaiting confirmation")
             self.set_state(State.WAIT_NEXT)
-
     # =========================================================================
     # ACTUATION
     # =========================================================================
-
     def set_control(self, speed, turn):
         self.target_speed = float(max(min(speed, SPEED_MAX), -SPEED_MAX))
         self.target_turn = float(max(min(turn, TURN_MAX), -TURN_MAX))
-
     def drive_stop(self):
         self.set_control(SPEED_STOP, 0.0)
-
     def rover_move_manual_mode(self, speed, turn):
         """Kept for API compatibility with the shipped skeleton."""
         self.set_control(speed, turn)
-
     def publish_drive_commands(self):
         msg = Joy()
         msg.buttons = [1, 0, 0, 0, 0, 0, 0, 1]
         msg.axes = [0.0, self.target_speed, 0.0, self.target_turn]
         self.publisher_joy.publish(msg)
-
-
 # =============================================================================
-
 def main(args=None):
     rclpy.init(args=args)
     node = LineFollower()
@@ -1925,7 +1840,5 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.shutdown()
-
-
 if __name__ == '__main__':
     main()
