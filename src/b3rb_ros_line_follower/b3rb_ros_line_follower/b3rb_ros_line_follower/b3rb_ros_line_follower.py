@@ -60,12 +60,12 @@ QOS = 10
 SPEED_MAX = 1.0
 TURN_MAX = 1.0
 # --- speed schedule ---
-SPEED_CRUISE = 0.65          # straight-line cruise (time is percentile-scored).
+SPEED_CRUISE = 0.75          # straight-line cruise (time is percentile-scored).
                              # Restored to the video-era value: the bend
                              # problem was phantom avoidance, not speed, so
                              # there is no reason to pay the time penalty.
 SPEED_CORNER = 0.35          # when steering hard
-SPEED_APPROACH = 0.30        # closing on a building to scan
+SPEED_APPROACH = 0.50        # closing on a building to scan
 SPEED_STOP = 0.0
 TURN_SLOWDOWN_GAIN = 0.6     # how much |turn| bleeds speed
 # --- lane following (PD + smoothing) ---
@@ -130,7 +130,7 @@ CURVE_LEAN_GAIN = 0.30       # fraction of measured lean applied as outward shif
 CURVE_LEAN_MAX_PX = 80.0     # cap on the shift, pixels
 # --- obstacle avoidance ---
 OBSTACLE_STOP_DIST = 0.55    # metres, emergency hard-avoid
-OBSTACLE_SLOW_DIST = 1.10    # metres, begin proportional evasive steer
+OBSTACLE_SLOW_DIST = 1.80    # metres, begin proportional evasive steer
 OBSTACLE_BIAS_MAX = 0.75     # max steering added by avoidance (was fixed 0.4)
 # Avoidance must respect the lane. Picking the dodge direction from side-sector
 # clearance alone is wrong: those sectors mostly measure the buildings flanking
@@ -1580,7 +1580,7 @@ class LineFollower(Node):
 
             # Keep the camera lane controller dominant.
             # LiDAR provides only a small emergency steering correction.
-            escape = 0.35 if dodge_left else -0.35
+            escape = 0.55 if dodge_left else -0.55
 
             turn = (
                 0.55 * self.lane_turn +

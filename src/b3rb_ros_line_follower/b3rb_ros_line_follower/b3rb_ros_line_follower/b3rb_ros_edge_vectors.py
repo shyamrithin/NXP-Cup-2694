@@ -30,7 +30,7 @@ GREEN_COLOR = (0, 255, 0)
 
 # HINT: You can adjust what percentage of the image from the bottom is analyzed.
 # Lower portions are closer to the buggy, while upper portions see further ahead.
-VECTOR_IMAGE_HEIGHT_PERCENTAGE = 0.40
+VECTOR_IMAGE_HEIGHT_PERCENTAGE = 0.38
 VECTOR_MAGNITUDE_MINIMUM = 2.25
 
 class EdgeVectorsPublisher(Node):
